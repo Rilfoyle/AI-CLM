@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- TuriX 合同管理系统 Logo（仅六边形部分，透明背景；按提供的图标重绘。
+       位图由 runtime/tmp/make_logo.py 用同样坐标生成：logo.png / favicon.ico / logo.gif -->
+  <g transform="translate(512 512) scale(1.27) translate(-512 -512)">
+    <path d="M 512 172 L 806 342 L 806 682 L 512 852 L 218 682 L 218 342 Z"
+          fill="#333333" stroke="#333333" stroke-width="88" stroke-linejoin="round"/>
+    <g stroke="#ffffff" stroke-width="46" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M 512 258 L 512 778"/>
+      <path d="M 512 348 L 626 282"/>
+      <path d="M 512 348 L 398 282"/>
+      <path d="M 512 452 L 704 341"/>
+      <path d="M 512 452 L 320 341"/>
+      <path d="M 584 505 L 704 436 L 704 596 L 542 690"/>
+      <path d="M 440 505 L 320 436 L 320 596 L 482 690"/>
+    </g>
+  </g>
+</svg>

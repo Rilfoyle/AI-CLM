@@ -1,0 +1,11 @@
+DELETE FROM "clm_contract_type";
+DELETE FROM "clm_contract_type_version";
+DELETE FROM "clm_party";
+DELETE FROM "clm_contract";
+DELETE FROM "clm_contract_party";
+DELETE FROM "clm_document";
+DELETE FROM "clm_document_version";
+DELETE FROM "clm_document_blob";
+DELETE FROM "clm_workflow_binding";
+DELETE FROM "clm_contract_participant";
+DELETE FROM "clm_audit_event";

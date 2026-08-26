@@ -1,0 +1,29 @@
+﻿# CLM local overrides. Activate with: --spring.profiles.active=local,clm-local
+# Secrets come from environment variables loaded by infra/env.ps1 (infra/.env is git-ignored).
+spring:
+  datasource:
+    dynamic:
+      datasource:
+        master:
+          url: ${CLM_DB_URL:jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true}
+          username: ${CLM_DB_USERNAME:root}
+          password: ${CLM_DB_PASSWORD}
+        slave:
+          lazy: true
+          url: ${CLM_DB_URL:jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true}
+          username: ${CLM_DB_USERNAME:root}
+          password: ${CLM_DB_PASSWORD}
+  data:
+    redis:
+      host: ${CLM_REDIS_HOST:127.0.0.1}
+      port: ${CLM_REDIS_PORT:6379}
+      database: 0
+
+# ONLYOFFICE Document Server (see docs/CLM_ONLYOFFICE_SPEC.md §1). Secrets/addresses come from infra/.env via env.ps1.
+clm:
+  onlyoffice:
+    enabled: ${CLM_ONLYOFFICE_ENABLED:true}
+    document-server-url: ${CLM_ONLYOFFICE_URL:http://127.0.0.1:8090}      # browser-facing Document Server address
+    jwt-secret: ${CLM_ONLYOFFICE_JWT_SECRET:change-me-local-only}           # must equal the Document Server JWT_SECRET
+    callback-base-url: ${CLM_ONLYOFFICE_CALLBACK_BASE:http://host.docker.internal:48080}  # address the Document Server uses to reach this backend
+    token-ttl-seconds: 3600

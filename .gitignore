@@ -1,0 +1,25 @@
+# ---- local runtime / build artifacts (not part of the snapshot) ----
+runtime/
+**/target/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-local/
+frontend/.eslintcache
+
+# ---- nested upstream git dirs (renamed aside during snapshot commits) ----
+backend/.git.upstream/
+frontend/.git.upstream/
+
+# ---- secrets: local credentials only ----
+.env
+infra/.env
+
+# ---- upstream alternate-DB SQL dumps (unused: MySQL-only POC; contain upstream demo keys that trip GitHub push protection) ----
+backend/sql/dm/
+backend/sql/highgo/
+backend/sql/kingbase/
+backend/sql/opengauss/
+backend/sql/oracle/
+backend/sql/sqlserver/
+backend/sql/db2/
+backend/sql/postgresql/

@@ -1,0 +1,21 @@
+# ONLYOFFICE Document Server for the CLM online-editing gate (phase 7).
+# Usage (on a machine with Docker):  docker compose --env-file infra/.env -f infra/compose.onlyoffice.yaml up -d
+# Then set CLM_ONLYOFFICE_URL=http://127.0.0.1:8090 and CLM_ONLYOFFICE_CALLBACK_BASE=http://host.docker.internal:48080 in infra/.env.
+services:
+  onlyoffice:
+    image: onlyoffice/documentserver:8.2
+    container_name: clm-onlyoffice
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${CLM_ONLYOFFICE_JWT_SECRET:?set CLM_ONLYOFFICE_JWT_SECRET in infra/.env}
+      JWT_HEADER: Authorization
+    ports:
+      - "8090:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - clm-onlyoffice-data:/var/www/onlyoffice/Data
+      - clm-onlyoffice-logs:/var/log/onlyoffice
+volumes:
+  clm-onlyoffice-data:
+  clm-onlyoffice-logs:
