@@ -23,3 +23,6 @@ backend/sql/oracle/
 backend/sql/sqlserver/
 backend/sql/db2/
 backend/sql/postgresql/
+
+# local-only handoff notes (kept out of the repo)
+docs/AI_HANDOFF.md

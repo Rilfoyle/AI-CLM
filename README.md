@@ -73,7 +73,7 @@
 
 登录 `http://127.0.0.1:3000`：租户 `芋道源码`，账号 `admin / admin123`。
 
-> Windows 一键脚本见 `infra/`（start-mysql / start-redis / build-backend / start-backend / start-frontend / init-db），运行手册见 `docs/RUNBOOK_WINDOWS.md`；macOS/Linux 环境请参照 `docs/AI_HANDOFF.md` 的移植说明。
+> Windows 一键脚本见 `infra/`（start-mysql / start-redis / build-backend / start-backend / start-frontend / init-db），运行手册见 `docs/RUNBOOK_WINDOWS.md`；macOS 初始搭建可参照 `docs/UPSTREAM_HANDOVER.md` §5（brew / docker compose）。`scripts/*.ps1` 为 PowerShell 脚本，非 Windows 环境可用 pwsh 运行或按其逻辑改写。
 
 ## 文档索引
 
@@ -87,7 +87,6 @@
 | `docs/DELIVERY.md` | 交付说明（验证证据、已知问题） |
 | `docs/REQUIREMENTS_COVERAGE.md` | 客户需求覆盖度分析 |
 | `docs/YINUO_REFERENCE.md` | 一诺产品功能与界面梳理（对标参考） |
-| `docs/AI_HANDOFF.md` | 开发交接（含 macOS 环境搭建与移植说明） |
 | `docs/UPSTREAM_HANDOVER.md` | 原始立项方案与锁定决策 |
 
 ## 许可与合规说明
