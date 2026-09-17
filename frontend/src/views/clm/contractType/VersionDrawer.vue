@@ -2,7 +2,7 @@
   <el-drawer v-model="drawerVisible" :title="drawerTitle" size="60%" destroy-on-close>
     <div class="mb-10px flex items-center justify-between">
       <div class="text-14px text-gray-500">
-        当前发布版本：
+        当前发布布局版本：
         <el-tag v-if="contractType?.currentVersionNo" type="success">
           V{{ contractType.currentVersionNo }}
         </el-tag>
@@ -28,12 +28,6 @@
           <dict-tag :type="DICT_TYPE.CLM_TYPE_VERSION_STATUS" :value="scope.row.status" />
         </template>
       </el-table-column>
-      <el-table-column
-        label="流程标识"
-        align="center"
-        prop="processDefinitionKey"
-        :show-overflow-tooltip="true"
-      />
       <el-table-column label="扩展字段数" align="center" width="100">
         <template #default="scope">{{ scope.row.formFields?.length || 0 }}</template>
       </el-table-column>
@@ -53,7 +47,7 @@
             @click="handleDesign(scope.row)"
             v-hasPermi="['clm:contract-type:query']"
           >
-            {{ isDraft(scope.row) ? '设计表单' : '预览表单' }}
+            {{ isDraft(scope.row) ? '配置页面布局' : '预览页面布局' }}
           </el-button>
           <el-button
             v-if="isDraft(scope.row)"
@@ -85,13 +79,13 @@ const { push } = useRouter() // 路由
 const drawerVisible = ref(false) // 抽屉是否展示
 const loading = ref(false) // 版本列表加载中
 const draftLoading = ref(false) // 新建草稿按钮加载中
-const contractType = ref<ContractTypeApi.ContractTypeVO>() // 当前合同类型
+const contractType = ref<ContractTypeApi.ContractTypeVO>() // 当前合同分类
 const list = ref<ContractTypeApi.ContractTypeVersionVO[]>([]) // 版本列表
 
 const drawerTitle = computed(() =>
   contractType.value
-    ? `版本管理 - ${contractType.value.name}（${contractType.value.code}）`
-    : '版本管理'
+    ? `页面布局版本 - ${contractType.value.name}（${contractType.value.code}）`
+    : '页面布局版本'
 )
 const hasDraft = computed(() => list.value.some((item) => isDraft(item)))
 

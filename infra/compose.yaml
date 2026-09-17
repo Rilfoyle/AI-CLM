@@ -1,0 +1,37 @@
+services:
+  mysql:
+    image: mysql:8.0.33
+    container_name: clm-mysql
+    environment:
+      MYSQL_DATABASE: ruoyi-vue-pro
+      MYSQL_ROOT_PASSWORD: ${CLM_DB_PASSWORD:?set CLM_DB_PASSWORD in infra/.env}
+    ports:
+      - "127.0.0.1:3306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-storage-engine=INNODB
+    volumes:
+      - clm-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot --password=\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: clm-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - clm-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  clm-mysql-data:
+  clm-redis-data:

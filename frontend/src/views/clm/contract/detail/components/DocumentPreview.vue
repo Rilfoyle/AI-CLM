@@ -36,6 +36,9 @@
 
     <!-- 预览区 -->
     <div v-loading="loading" class="clm-doc-preview__body">
+      <div v-if="viewMode === 'denied'" class="clm-doc-preview__placeholder">
+        <el-empty description="当前角色无合同正文查看权限" :image-size="100" />
+      </div>
       <!-- 空态：无正文 -->
       <div v-if="viewMode === 'empty'" class="clm-doc-preview__placeholder">
         <el-empty description="尚未上传合同正文" :image-size="100">
@@ -90,6 +93,7 @@
 import { renderAsync } from 'docx-preview'
 import type { UploadFile as ElUploadFile } from 'element-plus'
 import { formatFileSize } from '@/utils/file'
+import { checkPermi } from '@/utils/permission'
 import * as ContractApi from '@/api/clm/contract'
 
 defineOptions({ name: 'ClmDocumentPreview' })
@@ -99,7 +103,7 @@ const emit = defineEmits<{ refresh: [] }>()
 
 const message = useMessage()
 
-type ViewMode = 'empty' | 'docx' | 'pdf' | 'image' | 'unsupported' | 'error'
+type ViewMode = 'denied' | 'empty' | 'docx' | 'pdf' | 'image' | 'unsupported' | 'error'
 
 const loading = ref(false)
 const uploading = ref(false)
@@ -114,6 +118,9 @@ let renderToken = 0 // 防止异步渲染竞态
 
 const permissions = computed<Partial<ContractApi.ContractPermissionsVO>>(
   () => props.contract.permissions || {}
+)
+const hasContentAccess = computed(
+  () => !!permissions.value.canDownload && checkPermi(['clm:contract:download'])
 )
 
 /** 正文（MAIN）版本列表，版本号倒序 */
@@ -146,8 +153,22 @@ const revokeUrl = () => {
   }
 }
 
+const showDeniedState = () => {
+  renderToken++
+  documents.value = []
+  selectedId.value = undefined
+  revokeUrl()
+  if (docxContainerRef.value) docxContainerRef.value.innerHTML = ''
+  viewMode.value = 'denied'
+  loading.value = false
+}
+
 /** 渲染指定版本 */
 const renderVersion = async (version: ContractApi.DocumentVersionVO) => {
+  if (!hasContentAccess.value) {
+    showDeniedState()
+    return
+  }
   const token = ++renderToken
   loading.value = true
   try {
@@ -184,6 +205,10 @@ const renderVersion = async (version: ContractApi.DocumentVersionVO) => {
 
 /** 加载文档列表并预览默认版本（当前正文版本） */
 const loadDocuments = async () => {
+  if (!hasContentAccess.value) {
+    showDeniedState()
+    return
+  }
   if (!props.contract.id) return
   loading.value = true
   try {
@@ -206,6 +231,7 @@ const loadDocuments = async () => {
 
 /** 下拉切换版本 */
 const onSelectVersion = (id: number) => {
+  if (!hasContentAccess.value) return
   const version = allVersions.value.find((v) => v.id === id)
   if (version) {
     renderVersion(version)
@@ -214,6 +240,10 @@ const onSelectVersion = (id: number) => {
 
 /** 外部调用：预览指定版本（版本表"预览"联动） */
 const loadVersion = async (versionId: number, fileName?: string) => {
+  if (!hasContentAccess.value) {
+    showDeniedState()
+    return
+  }
   let version = allVersions.value.find((v) => v.id === versionId)
   if (!version) {
     // 列表中不存在（如刚上传），重新拉取后再找
@@ -257,12 +287,17 @@ const handleUploadMain = async (file: ElUploadFile) => {
 
 /** 下载当前预览文件 */
 const handleDownload = async () => {
-  if (!currentFile.value) return
+  if (!currentFile.value || !hasContentAccess.value) return
   await ContractApi.downloadVersionFile(currentFile.value.id, currentFile.value.fileName)
 }
 
 watch(
-  () => [props.contract.id, props.contract.updateTime, props.contract.currentDocumentVersionId],
+  () => [
+    props.contract.id,
+    props.contract.updateTime,
+    props.contract.currentDocumentVersionId,
+    props.contract.permissions?.canDownload
+  ],
   () => {
     loadDocuments()
   },
@@ -285,8 +320,8 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 8px;
     padding-bottom: 10px;
-    border-bottom: 1px solid var(--el-border-color-lighter);
     margin-bottom: 10px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
   }
 
   &__version-select {
@@ -314,21 +349,21 @@ onBeforeUnmount(() => {
       background: transparent;
 
       > section.docx {
-        margin-bottom: 16px;
-        box-shadow: 0 0 8px rgb(0 0 0 / 10%);
         width: 100% !important;
         max-width: 794px;
-        margin-left: auto;
         margin-right: auto;
+        margin-bottom: 16px;
+        margin-left: auto;
+        box-shadow: 0 0 8px rgb(0 0 0 / 10%);
       }
     }
   }
 
   &__pdf {
+    display: block;
     width: 100%;
     height: 100%;
     border: none;
-    display: block;
   }
 
   &__image-wrap {
@@ -338,8 +373,8 @@ onBeforeUnmount(() => {
   }
 
   &__image {
-    max-width: 100%;
     height: auto;
+    max-width: 100%;
   }
 }
 </style>

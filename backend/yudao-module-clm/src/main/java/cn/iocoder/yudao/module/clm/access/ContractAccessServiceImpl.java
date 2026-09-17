@@ -3,12 +3,14 @@ package cn.iocoder.yudao.module.clm.access;
 import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.module.clm.dal.dataobject.contract.ContractDO;
+import cn.iocoder.yudao.module.clm.collaboration.CollaborationCaseMapper;
 import cn.iocoder.yudao.module.clm.dal.dataobject.contract.ContractParticipantDO;
 import cn.iocoder.yudao.module.clm.dal.dataobject.workflow.WorkflowBindingDO;
 import cn.iocoder.yudao.module.clm.dal.mysql.contract.ContractParticipantMapper;
 import cn.iocoder.yudao.module.clm.dal.mysql.workflow.WorkflowBindingMapper;
 import cn.iocoder.yudao.module.clm.enums.contract.ClmApprovalStatusEnum;
 import cn.iocoder.yudao.module.clm.enums.contract.ClmLifecycleStatusEnum;
+import cn.iocoder.yudao.module.clm.permission.UserScopeMapper;
 import jakarta.annotation.Resource;
 import org.flowable.engine.HistoryService;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,10 @@ public class ContractAccessServiceImpl implements ContractAccessService {
     private ContractParticipantMapper contractParticipantMapper;
     @Resource
     private WorkflowBindingMapper workflowBindingMapper;
+    @Resource
+    private CollaborationCaseMapper collaborationCaseMapper;
+    @Resource
+    private UserScopeMapper userScopeMapper;
 
     @Resource
     private HistoryService historyService;
@@ -43,6 +49,9 @@ public class ContractAccessServiceImpl implements ContractAccessService {
         }
         return isOwner(contract, userId)
                 || hasParticipantFlag(contract, userId, ContractParticipantDO::getCanView)
+                || collaborationCaseMapper.hasUserRelation(contract.getId(), userId)
+                || workflowBindingMapper.hasCopyRelation(contract.getId(), userId)
+                || hasViewScope(contract, userId)
                 || isProcessParticipant(contract, userId);
     }
 
@@ -62,6 +71,9 @@ public class ContractAccessServiceImpl implements ContractAccessService {
         }
         return isOwner(contract, userId)
                 || hasParticipantFlag(contract, userId, ContractParticipantDO::getCanDownload)
+                || collaborationCaseMapper.hasUserRelation(contract.getId(), userId)
+                || workflowBindingMapper.hasCopyRelation(contract.getId(), userId)
+                || hasViewScope(contract, userId)
                 || isProcessParticipant(contract, userId);
     }
 
@@ -71,7 +83,8 @@ public class ContractAccessServiceImpl implements ContractAccessService {
             return false;
         }
         return isOwner(contract, userId)
-                || hasParticipantFlag(contract, userId, ContractParticipantDO::getCanManage);
+                || hasParticipantFlag(contract, userId, ContractParticipantDO::getCanManage)
+                || hasManageScope(contract, userId);
     }
 
     @Override
@@ -80,7 +93,8 @@ public class ContractAccessServiceImpl implements ContractAccessService {
             return false;
         }
         return isOwner(contract, userId)
-                || hasParticipantFlag(contract, userId, ContractParticipantDO::getCanEdit);
+                || hasParticipantFlag(contract, userId, ContractParticipantDO::getCanEdit)
+                || collaborationCaseMapper.hasActiveLegalAssignment(contract.getId(), userId);
     }
 
     @Override
@@ -199,10 +213,20 @@ public class ContractAccessServiceImpl implements ContractAccessService {
         return participant != null && BooleanUtil.isTrue(flag.apply(participant));
     }
 
+    private boolean hasViewScope(ContractDO contract, Long userId) {
+        return contract.getOwnerDeptId() != null && contract.getTypeId() != null
+                && userScopeMapper.hasViewScope(userId, contract.getOwnerDeptId(), contract.getTypeId());
+    }
+
+    private boolean hasManageScope(ContractDO contract, Long userId) {
+        return contract.getOwnerDeptId() != null && contract.getTypeId() != null
+                && userScopeMapper.hasManageScope(userId, contract.getOwnerDeptId(), contract.getTypeId());
+    }
+
     private boolean isLifecycleEditable(ContractDO contract) {
-        Integer lifecycle = contract.getLifecycleStatus();
-        return ClmLifecycleStatusEnum.DRAFT.getStatus().equals(lifecycle)
-                || ClmLifecycleStatusEnum.APPROVED.getStatus().equals(lifecycle);
+        // 第一期以“获批精确修订”为终点。审批通过后只能回看，不允许继续改写同一合同；
+        // 撤回、退回或拒绝会先把合同投影恢复为 DRAFT，再允许形成新修订并重提。
+        return ClmLifecycleStatusEnum.DRAFT.getStatus().equals(contract.getLifecycleStatus());
     }
 
 }

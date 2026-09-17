@@ -37,17 +37,19 @@ import cn.iocoder.yudao.module.clm.service.contracttype.ContractFormSchemaValida
 import cn.iocoder.yudao.module.clm.service.contracttype.ContractTypeService;
 import cn.iocoder.yudao.module.clm.service.document.DocumentService;
 import cn.iocoder.yudao.module.clm.service.party.PartyService;
+import cn.iocoder.yudao.module.clm.revision.ContractRevisionService;
+import cn.iocoder.yudao.module.clm.revision.ContractRevisionDO;
 import cn.iocoder.yudao.module.system.api.dept.DeptApi;
 import cn.iocoder.yudao.module.system.api.dept.dto.DeptRespDTO;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import cn.iocoder.yudao.module.system.api.user.dto.AdminUserRespDTO;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -69,8 +71,6 @@ public class ContractServiceImpl implements ContractService {
      */
     public static final Set<String> ARCHIVE_ALLOWED_EXTENSIONS = new HashSet<>(Arrays.asList(
             "pdf", "docx", "doc", "jpg", "jpeg", "png", "zip"));
-
-    private static final DateTimeFormatter CONTRACT_NO_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     @Resource
     private ContractMapper contractMapper;
@@ -95,6 +95,8 @@ public class ContractServiceImpl implements ContractService {
     private ClmAuditService clmAuditService;
     @Resource
     private ContractFormSchemaValidator contractFormSchemaValidator;
+    @Autowired(required = false)
+    private ContractRevisionService contractRevisionService;
 
     @Resource
     private AdminUserApi adminUserApi;
@@ -125,19 +127,19 @@ public class ContractServiceImpl implements ContractService {
                 .setLifecycleStatus(ClmLifecycleStatusEnum.DRAFT.getStatus())
                 .setApprovalStatus(ClmApprovalStatusEnum.NOT_SUBMITTED.getStatus())
                 .setCurrentDocumentVersionId(null)
-                .setCurrentBindingId(null);
+                .setCurrentBindingId(null)
+                .setSourceMode("MANUAL")
+                .setStageCode("DRAFT")
+                .setNoCommitmentConfirmed(Boolean.FALSE);
         contractMapper.insert(contract);
-        // 4. 生成合同编号回写
-        String contractNo = generateContractNo(contract.getId());
-        contractMapper.updateById(new ContractDO().setId(contract.getId()).setContractNo(contractNo));
-        contract.setContractNo(contractNo);
+        // 4. 草稿不分配永久编号
         // 5. 签约方
         insertParties(contract.getId(), createReqVO.getParties(), partyMap);
         // 6. 参与人 OWNER 行
         contractParticipantService.createOwnerParticipant(contract.getId(), ownerUserId);
         // 7. 审计
         Map<String, Object> detail = new LinkedHashMap<>();
-        detail.put("contractNo", contractNo);
+        detail.put("contractNo", null);
         detail.put("title", contract.getTitle());
         detail.put("typeId", contract.getTypeId());
         detail.put("typeVersionId", contract.getTypeVersionId());
@@ -151,6 +153,9 @@ public class ContractServiceImpl implements ContractService {
                 documentService.uploadDocument(contract.getId(), ClmDocumentRoleEnum.MAIN.getCode(),
                         "由类型范本创建", type.getTemplateFileName(), null, templateContent);
             }
+        }
+        if (contractRevisionService != null) {
+            contractRevisionService.createInitialRevision(contract.getId(), null, "MANUAL_CREATE");
         }
         return contract.getId();
     }
@@ -191,12 +196,12 @@ public class ContractServiceImpl implements ContractService {
                 .setApprovalStatus(ClmApprovalStatusEnum.NOT_SUBMITTED.getStatus())
                 .setCurrentDocumentVersionId(null)
                 .setCurrentBindingId(null)
+                .setSourceMode("COPY")
+                .setStageCode("DRAFT")
+                .setNoCommitmentConfirmed(Boolean.FALSE)
                 .setSourceContractId(source.getId())
                 .setRelationType(relationType.getCode());
         contractMapper.insert(contract);
-        String contractNo = generateContractNo(contract.getId());
-        contractMapper.updateById(new ContractDO().setId(contract.getId()).setContractNo(contractNo));
-        contract.setContractNo(contractNo);
         // 6. 签约方快照重建
         List<ContractPartyDO> sourceParties = contractPartyMapper.selectListByContractId(source.getId());
         if (CollUtil.isNotEmpty(sourceParties)) {
@@ -215,7 +220,7 @@ public class ContractServiceImpl implements ContractService {
         contractParticipantService.createOwnerParticipant(contract.getId(), userId);
         // 8. 审计 CONTRACT_CREATE（detail 含 sourceContractId / relationType）
         Map<String, Object> detail = new LinkedHashMap<>();
-        detail.put("contractNo", contractNo);
+        detail.put("contractNo", null);
         detail.put("title", contract.getTitle());
         detail.put("typeId", contract.getTypeId());
         detail.put("typeVersionId", contract.getTypeVersionId());
@@ -233,6 +238,9 @@ public class ContractServiceImpl implements ContractService {
                         "复制自 " + source.getContractNo(), sourceVersion.getFileName(),
                         sourceVersion.getMimeType(), content);
             }
+        }
+        if (contractRevisionService != null) {
+            contractRevisionService.createInitialRevision(contract.getId(), null, "COPY_CREATE");
         }
         return contract.getId();
     }
@@ -343,6 +351,12 @@ public class ContractServiceImpl implements ContractService {
         detail.put("changedFields", changedFields);
         clmAuditService.record(ClmAuditAggregateTypeEnum.CONTRACT, contract.getId(), contract.getId(),
                 ClmAuditActionEnum.CONTRACT_UPDATE, detail);
+        if (contractRevisionService != null && contract.getCurrentRevisionId() == null) {
+            contractRevisionService.createInitialRevision(contract.getId(), null, "LEGACY_UPDATE");
+        } else if (contractRevisionService != null) {
+            contractRevisionService.createSnapshot(contract.getId(), contract.getCurrentRevisionId(),
+                    "LEGACY_UPDATE", "兼容接口更新合同");
+        }
     }
 
     @Override
@@ -356,13 +370,36 @@ public class ContractServiceImpl implements ContractService {
             throw exception(CONTRACT_DELETE_NOT_ALLOWED);
         }
         contractMapper.deleteById(id);
-        contractPartyMapper.deleteByContractId(id);
-        contractParticipantService.deleteByContractId(id);
+        // 回收站需要可逆；签约方、参与人等聚合子对象保持原状，随合同根一起不可见。
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("contractNo", contract.getContractNo());
         detail.put("title", contract.getTitle());
         clmAuditService.record(ClmAuditAggregateTypeEnum.CONTRACT, id, id,
                 ClmAuditActionEnum.CONTRACT_DELETE, detail);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void restoreDraft(Long id) {
+        ContractDO contract = contractMapper.selectDeletedById(id);
+        if (contract == null) {
+            throw exception(CONTRACT_NOT_EXISTS);
+        }
+        Long userId = SecurityFrameworkUtils.getLoginUserId();
+        assertDeletedDraftOwner(contract, userId);
+        boolean approvalOk = ClmApprovalStatusEnum.NOT_SUBMITTED.getStatus().equals(contract.getApprovalStatus())
+                || ClmApprovalStatusEnum.CANCELED.getStatus().equals(contract.getApprovalStatus());
+        if (!approvalOk || !ClmLifecycleStatusEnum.DRAFT.getStatus().equals(contract.getLifecycleStatus())) {
+            throw exception(CONTRACT_RESTORE_NOT_ALLOWED);
+        }
+        if (contractMapper.restoreDeletedById(id, String.valueOf(userId)) != 1) {
+            throw exception(CONTRACT_NOT_EXISTS);
+        }
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("contractNo", contract.getContractNo());
+        detail.put("title", contract.getTitle());
+        clmAuditService.record(ClmAuditAggregateTypeEnum.CONTRACT, id, id,
+                ClmAuditActionEnum.CONTRACT_RESTORE, detail);
     }
 
     @Override
@@ -388,12 +425,31 @@ public class ContractServiceImpl implements ContractService {
     }
 
     @Override
+    public ContractRespVO getDeletedContractDetail(Long id) {
+        ContractDO contract = contractMapper.selectDeletedById(id);
+        if (contract == null) {
+            throw exception(CONTRACT_NOT_EXISTS);
+        }
+        Long userId = SecurityFrameworkUtils.getLoginUserId();
+        assertDeletedDraftOwner(contract, userId);
+        return buildContractRespVO(contract, userId);
+    }
+
+    private void assertDeletedDraftOwner(ContractDO contract, Long userId) {
+        if (userId == null || !Objects.equals(contract.getOwnerUserId(), userId)) {
+            throw exception(CONTRACT_ACCESS_DENIED);
+        }
+    }
+
+    @Override
     public PageResult<ContractRespVO> getContractPage(ContractPageReqVO pageReqVO) {
         Long userId = SecurityFrameworkUtils.getLoginUserId();
         if (userId == null) {
             return PageResult.empty();
         }
-        PageResult<ContractDO> pageResult = contractMapper.selectPage(pageReqVO, userId);
+        PageResult<ContractDO> pageResult = Boolean.TRUE.equals(pageReqVO.getDeletedOnly())
+                ? contractMapper.selectDeletedPage(pageReqVO, userId)
+                : contractMapper.selectPage(pageReqVO, userId);
         if (CollUtil.isEmpty(pageResult.getList())) {
             return PageResult.empty(pageResult.getTotal());
         }
@@ -422,8 +478,14 @@ public class ContractServiceImpl implements ContractService {
                 c -> c.getSourceContractId() != null);
         Map<Long, ContractDO> sourceContractMap = CollUtil.isEmpty(sourceContractIds) ? Collections.emptyMap()
                 : convertMap(contractMapper.selectByIds(sourceContractIds), ContractDO::getId);
+        Map<Long, List<ContractPartyDO>> partyMap = new HashMap<>();
+        for (ContractPartyDO party : contractPartyMapper.selectListByContractIds(
+                convertSet(contracts, ContractDO::getId))) {
+            partyMap.computeIfAbsent(party.getContractId(), ignored -> new ArrayList<>()).add(party);
+        }
         List<ContractRespVO> list = convertList(contracts, contract -> {
             ContractRespVO vo = BeanUtils.toBean(contract, ContractRespVO.class);
+            fillCurrentRevisionInfo(vo, contract);
             fillTypeInfo(vo, typeMap.get(contract.getTypeId()), versionMap.get(contract.getTypeVersionId()));
             AdminUserRespDTO user = userMap.get(contract.getOwnerUserId());
             vo.setOwnerUserName(user == null ? null : user.getNickname());
@@ -431,6 +493,7 @@ public class ContractServiceImpl implements ContractService {
             vo.setOwnerDeptName(dept == null ? null : dept.getName());
             fillSourceContractInfo(vo, contract.getSourceContractId() == null ? null
                     : sourceContractMap.get(contract.getSourceContractId()));
+            fillPartyInfo(vo, partyMap.getOrDefault(contract.getId(), Collections.emptyList()), false);
             return vo;
         });
         return new PageResult<>(list, pageResult.getTotal());
@@ -439,6 +502,7 @@ public class ContractServiceImpl implements ContractService {
     @Override
     public ContractRespVO buildContractRespVO(ContractDO contract, Long userId) {
         ContractRespVO vo = BeanUtils.toBean(contract, ContractRespVO.class);
+        fillCurrentRevisionInfo(vo, contract);
         // 类型
         fillTypeInfo(vo, contractTypeService.getContractType(contract.getTypeId()),
                 contractTypeService.getContractTypeVersion(contract.getTypeVersionId()));
@@ -448,7 +512,7 @@ public class ContractServiceImpl implements ContractService {
         DeptRespDTO dept = contract.getOwnerDeptId() == null ? null : deptApi.getDept(contract.getOwnerDeptId());
         vo.setOwnerDeptName(dept == null ? null : dept.getName());
         // 签约方
-        vo.setParties(convertList(contractPartyMapper.selectListByContractId(contract.getId()), this::buildPartyRespVO));
+        fillPartyInfo(vo, contractPartyMapper.selectListByContractId(contract.getId()), true);
         // 当前正文版本
         if (contract.getCurrentDocumentVersionId() != null) {
             DocumentVersionDO version = documentService.getDocumentVersion(contract.getCurrentDocumentVersionId());
@@ -558,6 +622,14 @@ public class ContractServiceImpl implements ContractService {
         vo.setSourceContractNo(sourceContract.getContractNo());
     }
 
+    private void fillCurrentRevisionInfo(ContractRespVO vo, ContractDO contract) {
+        if (contract.getCurrentRevisionId() == null || contractRevisionService == null) {
+            return;
+        }
+        ContractRevisionDO revision = contractRevisionService.getRequiredRevision(contract.getCurrentRevisionId());
+        vo.setCurrentRevisionNo(revision.getRevisionNo());
+    }
+
     private void fillTypeInfo(ContractRespVO vo, ContractTypeDO type, ContractTypeVersionDO version) {
         if (type != null) {
             vo.setTypeCode(type.getCode());
@@ -580,6 +652,23 @@ public class ContractServiceImpl implements ContractService {
         vo.setPartySnapshot(snapshot);
         vo.setPartyName(snapshot == null ? null : ObjUtil.toString(snapshot.get("name")));
         return vo;
+    }
+
+    private void fillPartyInfo(ContractRespVO vo, List<ContractPartyDO> parties, boolean includeParties) {
+        List<ContractPartyRespVO> partyVOs = convertList(parties, this::buildPartyRespVO);
+        if (includeParties) {
+            vo.setParties(partyVOs);
+        }
+        List<String> counterpartyNames = new ArrayList<>();
+        for (ContractPartyRespVO party : partyVOs) {
+            if (ClmContractPartyRoleEnum.COUNTERPARTY.getCode().equals(party.getRoleCode())
+                    && StrUtil.isNotBlank(party.getPartyName())
+                    && !counterpartyNames.contains(party.getPartyName())) {
+                counterpartyNames.add(party.getPartyName());
+            }
+        }
+        vo.setCounterpartyNames(counterpartyNames);
+        vo.setCounterpartyName(CollUtil.getFirst(counterpartyNames));
     }
 
     private ContractTypeVersionDO resolveTypeVersion(Long typeId) {
@@ -613,8 +702,9 @@ public class ContractServiceImpl implements ContractService {
         for (ContractPartyItemVO item : items) {
             PartyDO party = partyMap.get(item.getPartyId());
             Map<String, Object> snapshot = new LinkedHashMap<>();
-            snapshot.put("name", party.getName());
-            snapshot.put("unifiedCreditCode", party.getUnifiedCreditCode());
+        snapshot.put("name", party.getName());
+        snapshot.put("shortName", party.getShortName());
+        snapshot.put("unifiedCreditCode", party.getUnifiedCreditCode());
             snapshot.put("partyType", party.getPartyType());
             contractPartyMapper.insert(new ContractPartyDO()
                     .setContractId(contractId)
@@ -656,10 +746,6 @@ public class ContractServiceImpl implements ContractService {
             return oldObj.getAmount() == null && newObj.getAmount() == null;
         }
         return oldObj.getAmount().compareTo(newObj.getAmount()) == 0;
-    }
-
-    private String generateContractNo(Long id) {
-        return "HT" + LocalDate.now().format(CONTRACT_NO_DATE_FORMAT) + "-" + String.format("%05d", id);
     }
 
     private static <K, V> Map<K, V> safeMap(Map<K, V> map) {

@@ -15,14 +15,7 @@ const { start, done } = useNProgress()
 const { loadStart, loadDone } = usePageLoading()
 
 // 路由不重定向白名单
-const whiteList = [
-  '/login',
-  '/social-login',
-  '/auth-redirect',
-  '/bind',
-  '/register',
-  '/oauthLogin/gitee'
-]
+const whiteList = ['/login']
 
 // 路由加载前
 router.beforeEach(async (to, from, next) => {
@@ -52,12 +45,10 @@ router.beforeEach(async (to, from, next) => {
         const redirectPath = from.query.redirect
         // 修复跳转时不带参数的问题
         const redirect = typeof redirectPath === 'string' ? redirectPath : to.fullPath
-        const redirectLocation = parseRouteLocation(redirect)
-        const nextData =
-          to.fullPath === redirect
-            ? { ...to, replace: true }
-            : { ...redirectLocation, replace: true }
-        next(nextData)
+        // Re-resolve the target after dynamic routes are registered. Reusing
+        // the original `to` object would preserve the catch-all match and show
+        // a false 404 on the first login redirect to a permission route.
+        next({ ...parseRouteLocation(redirect), replace: true })
       } else {
         next()
       }

@@ -25,11 +25,14 @@
         <div class="divide-line"></div>
       </div>
     </template>
-    <div v-if="currentNode.type === NodeType.USER_TASK_NODE" class="flex flex-items-center mb-3">
+    <div
+      v-if="currentNode.type === NodeType.USER_TASK_NODE && approveTypeOptions.length > 1"
+      class="flex flex-items-center mb-3"
+    >
       <span class="font-size-16px mr-3">审批类型 :</span>
       <el-radio-group v-model="approveType">
         <el-radio
-          v-for="(item, index) in APPROVE_TYPE"
+          v-for="(item, index) in approveTypeOptions"
           :key="index"
           :value="item.value"
           :label="item.value"
@@ -48,7 +51,7 @@
                 @change="changeCandidateStrategy"
               >
                 <el-row>
-                  <el-col v-for="(dict, index) in CANDIDATE_STRATEGY" :key="index" :span="8">
+                  <el-col v-for="(dict, index) in candidateStrategyOptions" :key="index" :span="8">
                     <el-radio :value="dict.value" :label="dict.value">
                       {{ dict.label }}
                     </el-radio>
@@ -214,7 +217,10 @@
             </el-form-item>
             <!-- TODO @jason：后续要支持选择已经存好的表达式 -->
             <el-form-item
-              v-if="configForm.candidateStrategy === CandidateStrategy.EXPRESSION"
+              v-if="
+                configForm.candidateStrategy === CandidateStrategy.EXPRESSION &&
+                isCandidateStrategyAllowed(CandidateStrategy.EXPRESSION)
+              "
               label="流程表达式"
               prop="expression"
             >
@@ -394,7 +400,7 @@
               </el-form-item>
             </div>
 
-            <div v-if="currentNode.type === NodeType.USER_TASK_NODE">
+            <div v-if="currentNode.type === NodeType.USER_TASK_NODE && allowSignSetting">
               <el-divider content-position="left">是否需要签名</el-divider>
               <el-form-item prop="signEnable">
                 <el-switch v-model="configForm.signEnable" active-text="是" inactive-text="否" />
@@ -411,7 +417,7 @@
                 />
               </el-form-item>
             </div>
-            <div>
+            <div v-if="allowSkipExpression">
               <el-divider content-position="left">跳过表达式</el-divider>
               <el-form-item prop="skipExpression">
                 <el-input v-model="configForm.skipExpression" type="textarea" />
@@ -454,7 +460,11 @@
           </div>
         </div>
       </el-tab-pane>
-      <el-tab-pane label="表单字段权限" name="fields" v-if="formType === 10">
+      <el-tab-pane
+        label="表单字段权限"
+        name="fields"
+        v-if="allowFieldPermissionSetting && formType === 10"
+      >
         <div class="field-setting-pane">
           <div class="field-setting-desc">字段权限</div>
           <div class="field-permit-title">
@@ -509,7 +519,7 @@
           </div>
         </div>
       </el-tab-pane>
-      <el-tab-pane label="监听器" name="listener">
+      <el-tab-pane v-if="allowTaskListeners" label="监听器" name="listener">
         <UserTaskListener
           ref="userTaskListenerRef"
           v-model="configForm"
@@ -598,6 +608,24 @@ const { settingVisible, closeDrawer, openDrawer } = useDrawer()
 const { nodeName, showInput, clickIcon, blurEvent } = useNodeName(NodeType.USER_TASK_NODE)
 // 激活的 Tab 标签页
 const activeTabName = ref('user')
+const allowedCandidateStrategies = inject<Ref<number[]>>('allowedCandidateStrategies', ref([]))
+const allowedApproveTypes = inject<Ref<number[]>>('allowedApproveTypes', ref([]))
+const allowTaskListeners = inject<Ref<boolean>>('allowTaskListeners', ref(true))
+const allowSkipExpression = inject<Ref<boolean>>('allowSkipExpression', ref(true))
+const allowSignSetting = inject<Ref<boolean>>('allowSignSetting', ref(true))
+const allowFieldPermissionSetting = inject<Ref<boolean>>('allowFieldPermissionSetting', ref(true))
+const isCandidateStrategyAllowed = (strategy: number) =>
+  allowedCandidateStrategies.value.length === 0 ||
+  allowedCandidateStrategies.value.includes(strategy)
+const candidateStrategyOptions = computed(() =>
+  CANDIDATE_STRATEGY.filter((item) => isCandidateStrategyAllowed(item.value as number))
+)
+const approveTypeOptions = computed(() =>
+  APPROVE_TYPE.filter(
+    (item) =>
+      allowedApproveTypes.value.length === 0 || allowedApproveTypes.value.includes(item.value)
+  )
+)
 // 表单字段权限设置
 const { formType, fieldsPermissionConfig, formFieldOptions, getNodeConfigFormFields } =
   useFormFieldsPermission(FieldPermissionType.READ)
@@ -714,8 +742,10 @@ const saveConfig = async () => {
   }
 
   if (!formRef) return false
-  if (!userTaskListenerRef) return false
-  const valid = (await formRef.value.validate()) && (await userTaskListenerRef.value.validate())
+  const listenerValid = allowTaskListeners.value
+    ? await userTaskListenerRef.value?.validate()
+    : true
+  const valid = (await formRef.value.validate()) && listenerValid
   if (!valid) return false
   const showText = getShowText()
   if (!showText) return false
@@ -751,36 +781,48 @@ const saveConfig = async () => {
   // 设置审批人与发起人相同时
   currentNode.value.assignStartUserHandlerType = configForm.value.assignStartUserHandlerType
   // 设置表单权限
-  currentNode.value.fieldsPermission = fieldsPermissionConfig.value
+  if (allowFieldPermissionSetting.value) {
+    currentNode.value.fieldsPermission = fieldsPermissionConfig.value
+  } else {
+    delete currentNode.value.fieldsPermission
+  }
   // 设置按钮权限
   currentNode.value.buttonsSetting = buttonsSetting.value
   // 创建任务监听器
-  currentNode.value.taskCreateListener = {
-    enable: configForm.value.taskCreateListenerEnable ?? false,
-    path: configForm.value.taskCreateListenerPath,
-    header: configForm.value.taskCreateListener?.header,
-    body: configForm.value.taskCreateListener?.body
-  }
-  // 指派任务监听器
-  currentNode.value.taskAssignListener = {
-    enable: configForm.value.taskAssignListenerEnable ?? false,
-    path: configForm.value.taskAssignListenerPath,
-    header: configForm.value.taskAssignListener?.header,
-    body: configForm.value.taskAssignListener?.body
-  }
-  // 完成任务监听器
-  currentNode.value.taskCompleteListener = {
-    enable: configForm.value.taskCompleteListenerEnable ?? false,
-    path: configForm.value.taskCompleteListenerPath,
-    header: configForm.value.taskCompleteListener?.header,
-    body: configForm.value.taskCompleteListener?.body
+  if (allowTaskListeners.value) {
+    currentNode.value.taskCreateListener = {
+      enable: configForm.value.taskCreateListenerEnable ?? false,
+      path: configForm.value.taskCreateListenerPath,
+      header: configForm.value.taskCreateListener?.header,
+      body: configForm.value.taskCreateListener?.body
+    }
+    // 指派任务监听器
+    currentNode.value.taskAssignListener = {
+      enable: configForm.value.taskAssignListenerEnable ?? false,
+      path: configForm.value.taskAssignListenerPath,
+      header: configForm.value.taskAssignListener?.header,
+      body: configForm.value.taskAssignListener?.body
+    }
+    // 完成任务监听器
+    currentNode.value.taskCompleteListener = {
+      enable: configForm.value.taskCompleteListenerEnable ?? false,
+      path: configForm.value.taskCompleteListenerPath,
+      header: configForm.value.taskCompleteListener?.header,
+      body: configForm.value.taskCompleteListener?.body
+    }
+  } else {
+    delete currentNode.value.taskCreateListener
+    delete currentNode.value.taskAssignListener
+    delete currentNode.value.taskCompleteListener
   }
   // 签名
-  currentNode.value.signEnable = configForm.value.signEnable
+  if (allowSignSetting.value) currentNode.value.signEnable = configForm.value.signEnable
+  else delete currentNode.value.signEnable
   // 审批意见
   currentNode.value.reasonRequire = configForm.value.reasonRequire
   // 跳过表达式
-  currentNode.value.skipExpression = configForm.value.skipExpression
+  if (allowSkipExpression.value) currentNode.value.skipExpression = configForm.value.skipExpression
+  else delete currentNode.value.skipExpression
 
   currentNode.value.showText = showText
   settingVisible.value = false
@@ -791,16 +833,27 @@ const saveConfig = async () => {
 const showUserTaskNodeConfig = (node: SimpleFlowNode) => {
   nodeName.value = node.name
   // 1 审批类型
-  approveType.value = node.approveType ? node.approveType : ApproveType.USER
+  const configuredApproveType = node.approveType ?? ApproveType.USER
+  approveType.value = (
+    allowedApproveTypes.value.length === 0 ||
+    allowedApproveTypes.value.includes(configuredApproveType)
+      ? configuredApproveType
+      : allowedApproveTypes.value[0] || ApproveType.USER
+  ) as ApproveType
   // 如果审批类型不是人工审批返回
   if (approveType.value !== ApproveType.USER) {
     return
   }
 
   //2.1 审批人设置
-  configForm.value.candidateStrategy = node.candidateStrategy!
-  // 解析候选人参数
-  parseCandidateParam(node.candidateStrategy!, node?.candidateParam)
+  if (node.candidateStrategy && isCandidateStrategyAllowed(node.candidateStrategy)) {
+    configForm.value.candidateStrategy = node.candidateStrategy
+    // 解析候选人参数
+    parseCandidateParam(node.candidateStrategy, node?.candidateParam)
+  } else {
+    configForm.value.candidateStrategy = undefined as unknown as CandidateStrategy
+    configForm.value.expression = ''
+  }
   // 2.2 设置审批方式
   configForm.value.approveMethod = node.approveMethod!
   if (node.approveMethod == ApproveMethodType.APPROVE_BY_RATIO) {
@@ -835,35 +888,37 @@ const showUserTaskNodeConfig = (node: SimpleFlowNode) => {
       ? TRANSACTOR_DEFAULT_BUTTON_SETTING
       : DEFAULT_BUTTON_SETTING)
   // 4. 表单字段权限配置
-  getNodeConfigFormFields(node.fieldsPermission)
+  if (allowFieldPermissionSetting.value) getNodeConfigFormFields(node.fieldsPermission)
   // 5. 监听器
   // 5.1 创建任务
-  configForm.value.taskCreateListenerEnable = node.taskCreateListener?.enable
-  configForm.value.taskCreateListenerPath = node.taskCreateListener?.path
-  configForm.value.taskCreateListener = {
-    header: node.taskCreateListener?.header ?? [],
-    body: node.taskCreateListener?.body ?? []
-  }
-  // 5.2 指派任务
-  configForm.value.taskAssignListenerEnable = node.taskAssignListener?.enable
-  configForm.value.taskAssignListenerPath = node.taskAssignListener?.path
-  configForm.value.taskAssignListener = {
-    header: node.taskAssignListener?.header ?? [],
-    body: node.taskAssignListener?.body ?? []
-  }
-  // 5.3 完成任务
-  configForm.value.taskCompleteListenerEnable = node.taskCompleteListener?.enable
-  configForm.value.taskCompleteListenerPath = node.taskCompleteListener?.path
-  configForm.value.taskCompleteListener = {
-    header: node.taskCompleteListener?.header ?? [],
-    body: node.taskCompleteListener?.body ?? []
+  if (allowTaskListeners.value) {
+    configForm.value.taskCreateListenerEnable = node.taskCreateListener?.enable
+    configForm.value.taskCreateListenerPath = node.taskCreateListener?.path
+    configForm.value.taskCreateListener = {
+      header: node.taskCreateListener?.header ?? [],
+      body: node.taskCreateListener?.body ?? []
+    }
+    // 5.2 指派任务
+    configForm.value.taskAssignListenerEnable = node.taskAssignListener?.enable
+    configForm.value.taskAssignListenerPath = node.taskAssignListener?.path
+    configForm.value.taskAssignListener = {
+      header: node.taskAssignListener?.header ?? [],
+      body: node.taskAssignListener?.body ?? []
+    }
+    // 5.3 完成任务
+    configForm.value.taskCompleteListenerEnable = node.taskCompleteListener?.enable
+    configForm.value.taskCompleteListenerPath = node.taskCompleteListener?.path
+    configForm.value.taskCompleteListener = {
+      header: node.taskCompleteListener?.header ?? [],
+      body: node.taskCompleteListener?.body ?? []
+    }
   }
   // 6. 签名
-  configForm.value.signEnable = node?.signEnable ?? false
+  configForm.value.signEnable = allowSignSetting.value ? (node?.signEnable ?? false) : false
   // 7. 审批意见
   configForm.value.reasonRequire = node?.reasonRequire ?? false
   // 8. 跳过表达式
-  configForm.value.skipExpression = node?.skipExpression ?? ''
+  configForm.value.skipExpression = allowSkipExpression.value ? (node?.skipExpression ?? '') : ''
 }
 
 defineExpose({ openDrawer, showUserTaskNodeConfig }) // 暴露方法给父组件

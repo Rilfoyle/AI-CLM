@@ -4,12 +4,13 @@
 > 阶段约束：POC 可接受云 API 服务；**上线交付必须支持独立/私有化部署**（客户可能是纯内网）。
 > 所有定价/许可均于 2026-08-24 从官网一手来源核实（并经独立核查代理二次回查）；查不到公开价的一律标"需询价"。完整来源清单见文末。
 > 校准基准：我们的 CLM 底座已实现"令牌文件服务 + 保存回调→不可变版本+SHA-256 + 稳定 document key + JWT 签名"，任何"JS SDK + 回调"型组件都能复用这套管线，下述工程量均为**增量**人日。
+> 实施口径补充（2026-08-26）：当前仓库按交接文档先验收 **Community 8.2 固定 digest**；本文对 9.4 新能力的研究保留为后续升级候选，不与本轮 Gate 混跑。
 
 ## 0. 结论速览
 
 | 阶段 | 建议 | 成本 | 增量工程量 |
 |---|---|---|---|
-| **POC（现在）** | ONLYOFFICE Docs **Community 9.4**（Docker，2026-05 起已取消 20 并发限制）；我们的适配层已写完，只差部署与真实合同实测 | ¥0 | **4–7 人日**（部署+真文档验证+历史/对比 UI 挂接） |
+| **POC（当前 Gate）** | ONLYOFFICE Docs **Community 8.2**（Docker，多架构 digest 已锁）；我们的适配层已写完，只差部署与真实合同实测；9.4 另列升级验证 | ¥0 | **4–7 人日**（部署+真文档验证+历史/并排查看 UI 挂接） |
 | POC 可选平行验证 | WPS WebOffice 云端版测试应用（免费 3 个月、带水印、并发≤2），用真实合同做中文保真 A/B | ¥0（需公网回调，内网要穿透） | 5–7 人日（若做完整适配） |
 | **上线（独立部署）主线** | ONLYOFFICE **Developer Edition**（白标、允许作为产品组件交付客户），经国内经销商（如慧都）人民币采购开票 | **$3,500 起/服务器**（20 并发档，含 1 年更新支持） | 主体工程已在 POC 完成 |
 | 上线·红线增强（可选） | 服务端对比引擎解耦：**Spire.Doc for Java Developer OEM**（国产厂商、允许分发客户现场）或免费 WmlComparer | **$2,549**（Spire OEM；人民币需询价）/ ¥0（WmlComparer） | 3.5–4 人日（jar 内嵌）/ 5–6 人日（.NET sidecar） |
@@ -96,9 +97,9 @@
 ## 5. 分阶段落地
 
 **阶段 A（本周可做，¥0）**
-1. 有 Docker 的机器起 ONLYOFFICE Community 9.4（`infra/compose.onlyoffice.yaml` 已备好），跑通已写好的 61 项回调链路 E2E → 真实 DOCX 打开/保存/协同。
-2. 用 2–3 份真实合同（含页眉页脚/表格/盖章页）实测：中文版式保真、**Community 版 Compare 按钮**、修订/批注、两人协同。
-3. 挂接历史版本 UI 与 Compare 入口（合计 2–3.5 人日）。
+1. 按交接基线起 ONLYOFFICE Community 8.2 固定 digest（`infra/compose.onlyoffice.yaml`），先跑回调链路 E2E → 真实 DOCX 打开/保存/协同。
+2. 用 2–3 份真实合同（含页眉页脚/表格/盖章页）实测：中文版式保真、修订/批注、两人协同；本轮产品口径只验收历史只读与并排查看，不宣称内容级 Compare。
+3. 挂接并验证历史版本只读与并排查看入口（合计 2–3.5 人日）；9.4 Compare 作为单独升级 Gate。
 4. （可选平行）申请 WPS 测试应用做保真 A/B——注意需公网回调（frp 穿透），合同样本会上金山云，用脱敏样本。
 
 **阶段 B（商务并行）**
@@ -111,6 +112,6 @@
 
 ## 6. 核查说明（可信度标注）
 
-独立核查代理对 15 条决策性主张逐条回查一手来源：**13 条确认无误**；2 条标注为待人工复核——① WPS 包年价表（官网图片、OCR 失败，但与已确认的按量价算术自洽）；② Collabora CODE 的 10 文档/20 连接数字（仅社区来源，官方只说"不建议生产"）。另有 1 条法律解释边界（AGPL 对"未修改部署"的义务上限）官方 FAQ 未直接裁定，已在 3.1 标注需合同评审。ONLYOFFICE Compare 在 Community 9.4 的实际可用性列为 POC 必测项（历史上旧 API 曾是付费版专属）。
+独立核查代理对 15 条决策性主张逐条回查一手来源：**13 条确认无误**；2 条标注为待人工复核——① WPS 包年价表（官网图片、OCR 失败，但与已确认的按量价算术自洽）；② Collabora CODE 的 10 文档/20 连接数字（仅社区来源，官方只说"不建议生产"）。另有 1 条法律解释边界（AGPL 对"未修改部署"的义务上限）官方 FAQ 未直接裁定，已在 3.1 标注需合同评审。ONLYOFFICE Compare 在 Community 9.4 的实际可用性保留为**后续升级 Gate**（历史上旧 API 曾是付费版专属），不属于当前 8.2 Gate 的交付声明。
 
 主要来源（均 2026-08-24 访问）：onlyoffice.com/blog/2026/05/onlyoffice-docs-9-4 · github.com/ONLYOFFICE/DocumentServer（版本对比表）· onlyoffice.com/developer-edition-prices.aspx · onlyoffice.com/docs-enterprise-prices.aspx · helpcenter.onlyoffice.com/docs/faq/docs-community.aspx · api.onlyoffice.com（compare/history API）· solution.wps.cn/docs/price/detail.html · solution.wps.cn/docs/price/question.html · solution.wps.cn/docs/callback/*.html · collaboraonline.com/subscriptions · collaboraonline.com/code · vmiklos.hu/blog/cool-doc-compare.html · learn.microsoft.com/lifecycle/products/office-online-server · purchase.aspose.com/pricing/words/java · cdn.e-iceblue.com/Buy/Spire.Doc-java.html · github.com/JSv4/Python-Redlines · yozodcs.com · univer.ai/docs（Pro/License）。

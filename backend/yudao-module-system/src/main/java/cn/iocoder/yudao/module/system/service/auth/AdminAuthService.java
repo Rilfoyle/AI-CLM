@@ -32,6 +32,15 @@ public interface AdminAuthService {
     AuthLoginRespVO login(@Valid AuthLoginReqVO reqVO);
 
     /**
+     * 切换到固定的本地演示产品账号。
+     *
+     * @param reqVO 目标产品角色
+     * @param currentToken 当前访问令牌，成功后撤销
+     * @return 目标账号的登录结果
+     */
+    AuthLoginRespVO switchDemoRole(@Valid AuthDemoRoleSwitchReqVO reqVO, String currentToken);
+
+    /**
      * 基于 token 退出登录
      *
      * @param token token

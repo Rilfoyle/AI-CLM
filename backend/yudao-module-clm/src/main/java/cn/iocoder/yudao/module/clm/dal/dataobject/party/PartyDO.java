@@ -33,6 +33,8 @@ public class PartyDO extends TenantBaseDO {
      * 名称
      */
     private String name;
+    /** 我方主体简称，合同编号的受控组成部分。 */
+    private String shortName;
     /**
      * 统一社会信用代码 / 证件号
      */

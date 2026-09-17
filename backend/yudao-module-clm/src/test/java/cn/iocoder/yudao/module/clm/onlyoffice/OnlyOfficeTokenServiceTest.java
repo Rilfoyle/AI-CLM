@@ -84,8 +84,9 @@ public class OnlyOfficeTokenServiceTest {
     public void testVerify_tamperedSignature() {
         String token = tokenService.issue(newPayload(OnlyOfficeTokenPayload.PURPOSE_FILE));
         String[] parts = token.split("\\.");
-        char last = parts[1].charAt(parts[1].length() - 1);
-        String forgedSignature = parts[1].substring(0, parts[1].length() - 1) + (last == 'A' ? 'B' : 'A');
+        // 改首字符，确保改变签名字节；末字符可能只改变 Base64URL 未使用的 padding 位，导致偶发未篡改。
+        char first = parts[1].charAt(0);
+        String forgedSignature = (first == 'A' ? 'B' : 'A') + parts[1].substring(1);
         String tampered = parts[0] + "." + forgedSignature;
         assertServiceException(() -> tokenService.verify(tampered, OnlyOfficeTokenPayload.PURPOSE_FILE),
                 ONLINE_EDIT_TOKEN_INVALID);

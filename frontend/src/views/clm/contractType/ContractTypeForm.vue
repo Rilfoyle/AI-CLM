@@ -7,15 +7,15 @@
       :rules="formRules"
       label-width="110px"
     >
-      <el-form-item label="类型编码" prop="code">
+      <el-form-item label="分类编码" prop="code">
         <el-input
           v-model="formData.code"
-          placeholder="请输入类型编码，如 SALES"
+          placeholder="请输入分类编码，如 SALES"
           :disabled="formType === 'update'"
         />
       </el-form-item>
-      <el-form-item label="类型名称" prop="name">
-        <el-input v-model="formData.name" placeholder="请输入类型名称" />
+      <el-form-item label="分类名称" prop="name">
+        <el-input v-model="formData.name" placeholder="请输入分类名称" />
       </el-form-item>
       <el-form-item label="描述" prop="description">
         <el-input v-model="formData.description" placeholder="请输入描述" type="textarea" />
@@ -34,13 +34,6 @@
       <el-form-item label="排序" prop="sort">
         <el-input-number v-model="formData.sort" :min="0" controls-position="right" />
       </el-form-item>
-      <el-form-item v-if="formType === 'create'" label="审批流程标识" prop="processDefinitionKey">
-        <el-input
-          v-model="formData.processDefinitionKey"
-          placeholder="请输入审批流程标识（BPM 流程 key）"
-        />
-        <div class="text-12px text-gray-400">首个版本将使用该流程标识，后续可在版本设计中调整</div>
-      </el-form-item>
     </el-form>
     <template #footer>
       <el-button :disabled="formLoading" type="primary" @click="submitForm">确 定</el-button>
@@ -55,7 +48,7 @@ import * as ContractTypeApi from '@/api/clm/contractType'
 
 defineOptions({ name: 'ClmContractTypeForm' })
 
-/** 默认的审批流程标识 */
+/** 兼容历史分类版本字段；实际选用流程由业务单据流程配置决定。 */
 const DEFAULT_PROCESS_DEFINITION_KEY = 'clm_contract_approval_v1'
 
 const { t } = useI18n() // 国际化
@@ -75,10 +68,9 @@ const formData = ref<ContractTypeApi.ContractTypeVO>({
   processDefinitionKey: DEFAULT_PROCESS_DEFINITION_KEY
 })
 const formRules = reactive({
-  code: [{ required: true, message: '类型编码不能为空', trigger: 'blur' }],
-  name: [{ required: true, message: '类型名称不能为空', trigger: 'blur' }],
-  status: [{ required: true, message: '状态不能为空', trigger: 'blur' }],
-  processDefinitionKey: [{ required: true, message: '审批流程标识不能为空', trigger: 'blur' }]
+  code: [{ required: true, message: '分类编码不能为空', trigger: 'blur' }],
+  name: [{ required: true, message: '分类名称不能为空', trigger: 'blur' }],
+  status: [{ required: true, message: '状态不能为空', trigger: 'blur' }]
 })
 const formRef = ref() // 表单 Ref
 

@@ -5,6 +5,8 @@ import cn.iocoder.yudao.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.iocoder.yudao.module.clm.dal.dataobject.contract.ContractPartyDO;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -16,6 +18,17 @@ public interface ContractPartyMapper extends BaseMapperX<ContractPartyDO> {
     default List<ContractPartyDO> selectListByContractId(Long contractId) {
         return selectList(new LambdaQueryWrapperX<ContractPartyDO>()
                 .eq(ContractPartyDO::getContractId, contractId)
+                .orderByAsc(ContractPartyDO::getSort)
+                .orderByAsc(ContractPartyDO::getId));
+    }
+
+    default List<ContractPartyDO> selectListByContractIds(Collection<Long> contractIds) {
+        if (contractIds == null || contractIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return selectList(new LambdaQueryWrapperX<ContractPartyDO>()
+                .in(ContractPartyDO::getContractId, contractIds)
+                .orderByAsc(ContractPartyDO::getContractId)
                 .orderByAsc(ContractPartyDO::getSort)
                 .orderByAsc(ContractPartyDO::getId));
     }

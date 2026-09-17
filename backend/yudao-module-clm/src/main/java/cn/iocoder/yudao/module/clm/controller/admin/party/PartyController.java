@@ -3,11 +3,15 @@ package cn.iocoder.yudao.module.clm.controller.admin.party;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
+import cn.iocoder.yudao.module.clm.controller.admin.party.vo.PartyDuplicateGroupRespVO;
+import cn.iocoder.yudao.module.clm.controller.admin.party.vo.PartyMergeReqVO;
+import cn.iocoder.yudao.module.clm.controller.admin.party.vo.PartyMergeRespVO;
 import cn.iocoder.yudao.module.clm.controller.admin.party.vo.PartyPageReqVO;
 import cn.iocoder.yudao.module.clm.controller.admin.party.vo.PartyRespVO;
 import cn.iocoder.yudao.module.clm.controller.admin.party.vo.PartySaveReqVO;
 import cn.iocoder.yudao.module.clm.controller.admin.party.vo.PartySimpleRespVO;
 import cn.iocoder.yudao.module.clm.dal.dataobject.party.PartyDO;
+import cn.iocoder.yudao.module.clm.service.party.PartyMergeService;
 import cn.iocoder.yudao.module.clm.service.party.PartyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -30,6 +34,8 @@ public class PartyController {
 
     @Resource
     private PartyService partyService;
+    @Resource
+    private PartyMergeService partyMergeService;
 
     @PostMapping("/create")
     @Operation(summary = "创建签约方")
@@ -79,6 +85,22 @@ public class PartyController {
             @RequestParam(value = "internalFlag", required = false) Boolean internalFlag) {
         List<PartyDO> list = partyService.getPartySimpleList(internalFlag);
         return success(BeanUtils.toBean(list, PartySimpleRespVO.class));
+    }
+
+    @GetMapping("/duplicate-candidates")
+    @Operation(summary = "获得签约方重复候选分组")
+    @PreAuthorize("@ss.hasPermission('clm:party:query')")
+    public CommonResult<List<PartyDuplicateGroupRespVO>> getDuplicateCandidates(
+            @RequestParam(value = "internalFlag", required = false) Boolean internalFlag,
+            @RequestParam(value = "partyType", required = false) Integer partyType) {
+        return success(partyMergeService.getDuplicateCandidates(internalFlag, partyType));
+    }
+
+    @PutMapping("/merge")
+    @Operation(summary = "合并签约方")
+    @PreAuthorize("@ss.hasPermission('clm:party:update')")
+    public CommonResult<PartyMergeRespVO> mergeParty(@Valid @RequestBody PartyMergeReqVO reqVO) {
+        return success(partyMergeService.merge(reqVO));
     }
 
 }

@@ -172,10 +172,29 @@ const condition = computed({
   }
 })
 const formType = inject<Ref<number>>('formType') // 表单类型
+const allowCustomFormRules = inject<Ref<boolean>>('allowCustomFormRules', ref(false))
+const allowConditionExpression = inject<Ref<boolean>>('allowConditionExpression', ref(true))
+watchEffect(() => {
+  if (
+    !allowConditionExpression.value &&
+    condition.value.conditionType === ConditionType.EXPRESSION
+  ) {
+    condition.value.conditionType = ConditionType.RULE
+    condition.value.conditionExpression = undefined
+    condition.value.conditionGroups ||= cloneDeep(DEFAULT_CONDITION_GROUP_VALUE)
+  }
+})
 const conditionConfigTypes = computed(() => {
   return CONDITION_CONFIG_TYPES.filter((item) => {
+    if (!allowConditionExpression.value && item.value === ConditionType.EXPRESSION) {
+      return false
+    }
     // 业务表单暂时去掉条件规则选项
-    if (formType?.value === BpmModelFormType.CUSTOM && item.value === ConditionType.RULE) {
+    if (
+      formType?.value === BpmModelFormType.CUSTOM &&
+      !allowCustomFormRules.value &&
+      item.value === ConditionType.RULE
+    ) {
       return false
     } else {
       return true

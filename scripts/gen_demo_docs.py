@@ -1,497 +1,757 @@
 # -*- coding: utf-8 -*-
+"""Generate the four original TuriX demo contract templates.
+
+The documents reproduce only the generic information structure of a CLM
+template. All names, identifiers and clauses are original fictitious content.
+They are product-demo fixtures, not legal advice or customer source material.
+
+Selected document preset: ``contract_negotiation_brief``.
+Named, consistently applied overrides:
+  * ``china_contract_paper``: A4, 25 mm margins, 9072 DXA content width.
+  * ``legal_black_hierarchy``: black Chinese contract headings and centered title.
+  * ``unicode_body``: Arial Unicode MS, 11 pt, 1.25 line spacing.
+First-page pattern: ``memo_masthead`` with a centered legal-title override.
+
+Output: <repo>/runtime/demo-docs/*.docx
+Usage: python scripts/gen_demo_docs.py
 """
-Generate 8 original demo contract DOCX files for the TuriX CLM demo.
-All clause wording below is generic original drafting for demo purposes only
-(no real-world template text). Output: D:\\dev\\clm\\runtime\\demo-docs\\
-Usage: python D:\\dev\\clm\\scripts\\gen_demo_docs.py
-"""
+
+from __future__ import annotations
+
+import hashlib
+import json
 import os
+import shutil
+import subprocess
+import tempfile
+import uuid
+from functools import lru_cache
+from pathlib import Path
+from typing import Iterable
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from docx import Document
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Pt
+from docx.shared import Cm, Inches, Pt, RGBColor
+from lxml import etree
 
-OUT_DIR = r"D:\dev\clm\runtime\demo-docs"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OUT_DIR = REPO_ROOT / "runtime" / "demo-docs"
 
+CONTENT_WIDTH_DXA = 9072
+TABLE_INDENT_DXA = 120
+CELL_MARGIN_TOP_BOTTOM_DXA = 80
+CELL_MARGIN_START_END_DXA = 120
+INK = RGBColor(24, 24, 27)
+MUTED = RGBColor(98, 105, 118)
+ACCENT = RGBColor(30, 92, 154)
+PALE_BLUE = "EDF4FB"
+PALE_GRAY = "F5F6F8"
+DOC_FONT = "Source Han Sans CN"
+EMBEDDED_FONT_CANDIDATES = {
+    "regular": [
+        Path.home() / "Library/Fonts/SourceHanSansCN-Regular.otf",
+        Path("/Library/Fonts/SourceHanSansCN-Regular.otf"),
+    ],
+    "bold": [
+        Path.home() / "Library/Fonts/SourceHanSansCN-Bold.otf",
+        Path("/Library/Fonts/SourceHanSansCN-Bold.otf"),
+    ],
+}
 
-def set_run(run, size=12, bold=False):
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    run.font.name = "Times New Roman"
-    run._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
-
-
-def add_para(doc, text, size=12, bold=False, align=None, indent=True,
-             space_after=6):
-    p = doc.add_paragraph()
-    if align is not None:
-        p.alignment = align
-    if indent:
-        p.paragraph_format.first_line_indent = Pt(size * 2)
-    p.paragraph_format.space_after = Pt(space_after)
-    p.paragraph_format.line_spacing = 1.4
-    run = p.add_run(text)
-    set_run(run, size=size, bold=bold)
-    return p
-
-
-def build_doc(filename, title, party_a_role, party_b_role, recital, clauses):
-    doc = Document()
-    for section in doc.sections:
-        section.page_width = Cm(21.0)
-        section.page_height = Cm(29.7)
-        section.top_margin = Cm(2.54)
-        section.bottom_margin = Cm(2.54)
-        section.left_margin = Cm(3.0)
-        section.right_margin = Cm(3.0)
-
-    # 标题
-    add_para(doc, title, size=22, bold=True,
-             align=WD_ALIGN_PARAGRAPH.CENTER, indent=False, space_after=18)
-    # 合同编号占位
-    add_para(doc, "合同编号：＿＿＿＿＿＿＿＿＿＿＿＿", size=12,
-             align=WD_ALIGN_PARAGRAPH.RIGHT, indent=False, space_after=14)
-
-    # 甲乙双方抬头
-    for label, role in (("甲方", party_a_role), ("乙方", party_b_role)):
-        add_para(doc, "%s（%s）：＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿" % (label, role),
-                 bold=True, indent=False, space_after=2)
-        add_para(doc, "统一社会信用代码：＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿",
-                 indent=False, space_after=2)
-        add_para(doc, "住所地：＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿",
-                 indent=False, space_after=2)
-        add_para(doc, "联系人／联系方式：＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿",
-                 indent=False, space_after=10)
-
-    # 鉴于条款
-    add_para(doc, "鉴于：", bold=True, indent=False, space_after=4)
-    add_para(doc, recital, space_after=10)
-    add_para(doc,
-             "甲乙双方本着平等自愿、诚实信用、互利共赢的原则，依据适用的法律法规，"
-             "经充分协商，就上述事项达成一致，订立本合同，以兹共同遵守。",
-             space_after=12)
-
-    # 主条款
-    for idx, (heading, paras) in enumerate(clauses, start=1):
-        add_para(doc, "第%s条  %s" % ("一二三四五六七八九十"[idx - 1], heading),
-                 bold=True, indent=False, space_after=4)
-        for text in paras:
-            add_para(doc, text, space_after=6)
-
-    # 落款签章区
-    add_para(doc, "（以下无正文，为签署页）", size=10,
-             align=WD_ALIGN_PARAGRAPH.CENTER, indent=False, space_after=16)
-    table = doc.add_table(rows=6, cols=2)
-    cells_a = [
-        "甲方（盖章）：＿＿＿＿＿＿＿＿＿＿＿＿",
-        "法定代表人或授权代表（签字）：",
-        "＿＿＿＿＿＿＿＿＿＿＿＿",
-        "",
-        "签署日期：＿＿＿＿年＿＿月＿＿日",
-        "",
-    ]
-    cells_b = [
-        "乙方（盖章）：＿＿＿＿＿＿＿＿＿＿＿＿",
-        "法定代表人或授权代表（签字）：",
-        "＿＿＿＿＿＿＿＿＿＿＿＿",
-        "",
-        "签署日期：＿＿＿＿年＿＿月＿＿日",
-        "",
-    ]
-    for row, (ta, tb) in enumerate(zip(cells_a, cells_b)):
-        for col, text in ((0, ta), (1, tb)):
-            cell = table.rows[row].cells[col]
-            p = cell.paragraphs[0]
-            p.paragraph_format.space_after = Pt(10)
-            run = p.add_run(text)
-            set_run(run, size=12)
-
-    path = os.path.join(OUT_DIR, filename)
-    doc.save(path)
-    return path
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+CONTENT_TYPE_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+FONT_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"
+OBFUSCATED_FONT_TYPE = "application/vnd.openxmlformats-officedocument.obfuscatedFont"
 
 
-# ---- 通用条款（原创，按合同要素参数化） ----
-
-def clause_confidential(years="三"):
-    return ("保密", [
-        "双方在本合同订立与履行过程中知悉的对方商业信息、技术资料、经营数据、客户资料以及"
-        "其他标明保密或依其性质应予保密的信息，均属保密信息。接收方应采取合理的保密措施妥善保管，"
-        "未经披露方书面同意，不得向任何第三方披露，亦不得用于本合同目的之外的任何用途。",
-        "保密义务不因本合同的解除、终止或履行完毕而免除，自保密信息接收之日起持续%s年。"
-        "因接收方违反保密义务给披露方造成损失的，接收方应承担赔偿责任。" % years,
-    ])
-
-
-def clause_breach(extra=""):
-    paras = [
-        "任何一方不履行或不完全履行本合同约定义务的，应承担违约责任；给守约方造成损失的，"
-        "应赔偿守约方因此遭受的直接损失。守约方有权以书面形式催告违约方限期纠正；"
-        "违约方逾期仍未纠正的，守约方有权解除本合同。",
-    ]
-    if extra:
-        paras.append(extra)
-    return ("违约责任", paras)
-
-
-def clause_force_majeure():
-    return ("不可抗力", [
-        "因不能预见、不能避免且不能克服的客观情况致使本合同全部或部分不能履行的，"
-        "受影响一方应在不可抗力发生后七日内书面通知对方，并在合理期限内提供相应证明。"
-        "受影响一方可根据不可抗力的影响程度部分或全部免除责任，但应采取合理措施减少损失的扩大；"
-        "未及时通知或未采取合理减损措施造成损失扩大的，就扩大部分不得免责。",
-    ])
-
-
-def clause_dispute():
-    return ("争议解决", [
-        "因本合同引起的或与本合同有关的任何争议，双方应首先友好协商解决；"
-        "协商不成的，任何一方均有权向甲方住所地有管辖权的人民法院提起诉讼。"
-        "争议解决期间，除争议事项外，双方仍应继续履行本合同其他条款。",
-    ])
-
-
-def clause_final(copies="肆", extra=""):
-    paras = [
-        "本合同自双方法定代表人或授权代表签字并加盖公章之日起生效。"
-        "本合同一式%s份，双方各执半数，具有同等法律效力。"
-        "本合同未尽事宜，双方可另行签订补充协议，补充协议与本合同具有同等效力。" % copies,
-    ]
-    if extra:
-        paras.append(extra)
-    return ("生效与其他", paras)
-
-
-DOCS = [
-    # 1. 采购合同范本
-    dict(
-        filename="采购合同范本.docx",
-        title="采 购 合 同",
-        party_a_role="采购方", party_b_role="供货方",
-        recital="甲方因业务发展需要采购本合同约定的货物，乙方具备相应的生产、供货能力与资质，"
-                "愿意按照本合同约定向甲方供应货物并提供相关服务。",
-        clauses=[
-            ("采购标的", [
-                "乙方向甲方供应的货物名称、规格型号、数量、单价及技术参数以本合同附件《采购清单》为准。"
-                "附件为本合同不可分割的组成部分。",
-                "乙方交付的货物应为全新、未使用的合格产品，符合国家及行业强制性标准以及双方确认的技术要求，"
-                "并随附产品合格证、说明书及必要的技术资料。",
+TEMPLATES = [
+    {
+        "filename": "物资采购合同范本.docx",
+        "title": "物资采购合同",
+        "type_code": "DEMO_PURCHASE",
+        "purpose": "适用于企业日常物资、设备及配套交付的标准采购场景",
+        "party_a": "采购方",
+        "party_b": "供货方",
+        "recital": "双方基于平等、自愿和诚实信用原则，就物资采购、交付、验收及售后服务事项达成如下约定。",
+        "transaction_rows": [
+            ("采购标的", "【名称、规格、数量，以经确认的采购清单为准】"),
+            ("合同金额", "人民币（含税）【待填写】元；币种：人民币"),
+            ("交付安排", "【交付日期】前送达【交付地点】"),
+            ("付款条件", "预付款【待填写】%；验收后【待填写】%；质保金【待填写】%"),
+        ],
+        "clauses": [
+            ("标的与质量", [
+                "供货方应提供全新、来源合法且符合双方确认规格的货物，并随货提交必要的合格证明、说明资料和装箱清单。",
+                "采购清单、技术要求及经双方书面确认的变更记录均为本合同组成部分；文件不一致时，以时间在后的书面确认内容为准。",
             ]),
-            ("合同价款与支付", [
-                "本合同总价款为人民币（大写）＿＿＿＿＿＿＿＿元（¥＿＿＿＿＿＿元），"
-                "为含税价，已包含货物价款、包装、运输、保险及交付至指定地点的一切费用。",
-                "付款方式：合同生效后七个工作日内甲方支付总价款的百分之三十作为预付款；"
-                "货物验收合格后支付至总价款的百分之九十；余款作为质量保证金，"
-                "于质保期届满且无质量争议后十个工作日内一次性付清。乙方应在收款前向甲方开具等额合规增值税发票。",
+            ("价格与付款", [
+                "合同价款已包含包装、运输、保险、税费以及交付至约定地点所需的合理费用。供货方应在付款条件成就前提供合法有效的等额发票。",
+                "采购方在收到合格付款资料后按约定账期支付。付款不代表对货物质量、数量或供货方责任的最终确认。",
             ]),
             ("交付与验收", [
-                "乙方应于双方约定的交付日期前将货物运抵甲方指定地点。因乙方原因迟延交付的，"
-                "每迟延一日按合同总价款的千分之一向甲方支付违约金。",
-                "货物到达后，甲方应在十个工作日内依据合同约定及附件技术要求组织验收。"
-                "验收不合格的，乙方应在甲方通知的期限内无偿修复、更换或补足；"
-                "经两次修复或更换仍不合格的，甲方有权解除本合同并要求乙方承担相应损失。",
+                "供货方应按约定时间和地点完成交付。采购方在合理期限内依据采购清单和技术要求进行验收，并将明显不符合项书面通知供货方。",
+                "验收不合格的，供货方应在通知期限内完成补足、修复或更换；由此产生的合理费用由供货方承担。",
             ]),
-            ("双方权利义务", [
-                "甲方有权对乙方的生产、备货情况进行必要的了解与核查；应按约定及时组织验收并支付价款。",
-                "乙方应保证货物来源合法、权属清晰，不存在抵押、查封等权利瑕疵；"
-                "并保证货物不侵犯任何第三方的知识产权，否则由此引起的争议及损失由乙方负责处理并承担。",
+            ("质量保证与服务", [
+                "质保期自最终验收合格之日起计算。质保期内因产品本身原因发生故障的，供货方应及时响应并提供修复、更换或其他双方认可的补救。",
             ]),
-            ("质量保证", [
-                "货物质保期自验收合格之日起算，具体期限以附件约定为准。质保期内货物出现非因甲方原因导致的"
-                "质量问题的，乙方应在接到通知后四十八小时内响应，并及时予以维修或更换，相关费用由乙方承担。",
+            ("重大承诺", [
+                "供货方承诺货物权属清晰，不存在已知权利瑕疵；双方承诺不以商业贿赂、不当利益或其他违法方式促成本交易。",
             ]),
-            clause_confidential("三"),
-            clause_breach("乙方交付的货物经验收存在质量问题的，除按本合同约定修复、更换外，"
-                          "甲方有权按不合格部分货款的百分之五向乙方主张违约金。"),
-            clause_force_majeure(),
-            clause_dispute(),
-            clause_final("肆"),
+            ("保密与数据", [
+                "一方因履行合同获得的对方非公开业务、技术和经营信息，仅限用于本合同目的，并应采取不低于保护自身同类信息的合理措施。",
+            ]),
+            ("违约、争议与其他", [
+                "一方未按约履行且在合理补救期内仍未纠正的，应赔偿对方因此遭受的可证明直接损失。争议应先友好协商；协商不成的，向有管辖权的人民法院处理。",
+                "本合同的补充或变更应由双方以可追溯的书面形式确认。本模板须经企业内部审批完成后方可进入签署安排。",
+            ]),
         ],
-    ),
-    # 2. 销售合同范本
-    dict(
-        filename="销售合同范本.docx",
-        title="销 售 合 同",
-        party_a_role="出卖方", party_b_role="买受方",
-        recital="甲方系合同项下产品的合法销售主体，乙方拟向甲方购买该等产品用于自身经营，"
-                "双方就产品销售相关事宜协商一致。",
-        clauses=[
-            ("销售标的", [
-                "甲方向乙方销售的产品名称、型号、数量、单价以双方确认的《销售订单明细》为准，"
-                "该明细经双方盖章或授权人员书面确认后构成本合同附件。",
-            ]),
-            ("价款与支付", [
-                "本合同项下产品总价为人民币（大写）＿＿＿＿＿＿＿＿元（¥＿＿＿＿＿＿元），含税。"
-                "除双方另有书面约定外，价格已包含包装费用；运输费用的承担以订单明细载明为准。",
-                "乙方应按照约定的账期付款。逾期付款的，每逾期一日按未付金额的万分之五向甲方支付违约金；"
-                "逾期超过三十日的，甲方有权暂停后续供货并要求乙方立即支付全部到期未付款项。",
-            ]),
-            ("交付与风险转移", [
-                "甲方按订单约定的时间、地点交付产品。产品毁损、灭失的风险自交付时起由甲方转移至乙方；"
-                "乙方受领迟延的，风险自甲方通知的交付之日起转移。",
-                "乙方应在收货后七日内完成检验；对数量短缺或外观瑕疵，应当场或在检验期内书面提出，"
-                "逾期未提出的视为交付的产品符合约定，但存在隐蔽瑕疵的除外。",
-            ]),
-            ("双方权利义务", [
-                "甲方保证产品为合格产品，符合国家相关标准，并按约定提供相应的质量证明文件与售后支持。",
-                "乙方应依法销售、使用产品，不得以甲方名义对外作出超出产品说明范围的承诺；"
-                "未经甲方书面许可，不得使用甲方的商标、字号从事本合同以外的经营活动。",
-            ]),
-            clause_confidential("二"),
-            clause_breach(),
-            clause_force_majeure(),
-            clause_dispute(),
-            clause_final("贰"),
+    },
+    {
+        "filename": "技术服务合同范本.docx",
+        "title": "技术服务合同",
+        "type_code": "DEMO_TECH_SERVICE",
+        "purpose": "适用于咨询、实施、运维及其他以成果或里程碑验收的服务场景",
+        "party_a": "委托方",
+        "party_b": "服务方",
+        "recital": "委托方拟采购约定的技术服务，服务方具备相应的专业能力，双方就服务范围、交付成果和验收标准达成如下约定。",
+        "transaction_rows": [
+            ("服务内容", "【服务范围、里程碑和交付物，详见服务说明】"),
+            ("服务费用", "人民币（含税）【待填写】元；币种：人民币"),
+            ("服务期间", "自【开始日期】至【结束日期】"),
+            ("付款条件", "按里程碑验收结果分期支付，具体比例【待填写】"),
         ],
-    ),
-    # 3. 技术服务合同范本
-    dict(
-        filename="技术服务合同范本.docx",
-        title="技 术 服 务 合 同",
-        party_a_role="委托方", party_b_role="服务方",
-        recital="甲方因项目建设需要委托乙方提供本合同约定的技术服务，"
-                "乙方具备提供该等服务所需的专业能力、人员与经验，愿意接受甲方委托。",
-        clauses=[
-            ("服务内容与要求", [
-                "乙方向甲方提供的技术服务内容、服务范围、交付成果及验收标准以本合同附件"
-                "《技术服务需求说明书》为准。乙方应按照约定的服务周期与里程碑计划组织实施。",
-                "乙方应指定项目负责人负责服务的组织与协调，未经甲方书面同意，"
-                "不得将本合同项下的主要服务事项转委托第三方实施。",
+        "clauses": [
+            ("服务范围与组织", [
+                "服务方应按经双方确认的服务说明、项目计划和质量标准组织实施，并指定具备相应经验的项目负责人。",
+                "未经委托方书面同意，服务方不得将主要服务整体转委托；经同意的转委托不减轻服务方对交付质量和合规性的责任。",
             ]),
-            ("服务费用与支付", [
-                "本合同服务费总额为人民币（大写）＿＿＿＿＿＿＿＿元（¥＿＿＿＿＿＿元），含税。"
-                "服务费按里程碑分期支付：各里程碑成果经甲方验收确认后十个工作日内，"
-                "甲方按附件约定的比例支付相应款项。",
+            ("里程碑与验收", [
+                "服务方应按计划提交可检验的阶段成果。委托方在约定期限内依据验收标准提出确认意见或具体改进事项。",
+                "成果不符合约定的，服务方应在合理期限内完成修订并再次提交；因委托方未及时提供必要资料导致的合理延期由双方书面确认。",
             ]),
-            ("交付与验收", [
-                "乙方应按照里程碑计划向甲方提交阶段成果。甲方应在收到成果后十个工作日内完成审查，"
-                "并出具验收意见；逾期未出具意见且未说明理由的，视为该阶段成果验收通过。",
-                "验收不合格的，乙方应根据甲方书面意见在合理期限内修改完善后再次提交验收；"
-                "因乙方原因导致同一成果连续两次验收不合格的，甲方有权解除本合同。",
+            ("费用与结算", [
+                "除另有约定外，服务费用已覆盖人员、工具、差旅及完成交付所需的合理支出。服务方应在每期付款前提供合格发票和对应的验收依据。",
             ]),
             ("知识产权", [
-                "乙方为履行本合同专门产生的交付成果，其知识产权归甲方所有，"
-                "乙方享有为改进自身技术而使用相关通用技术经验的权利。"
-                "乙方用于提供服务的自有工具、通用组件的知识产权仍归乙方所有，甲方在合同目的范围内享有使用权。",
-                "乙方保证交付成果不侵犯任何第三方的合法权利；因成果侵权引起的纠纷，由乙方负责处理并承担全部责任。",
+                "双方各自在合同订立前拥有的技术、材料和工具仍归原权利人所有。为本项目专门形成的交付成果及其使用权归属，以交易信息或附件约定为准。",
+                "服务方应确保其交付内容有合法来源；如使用第三方材料，应事先披露必要的许可条件，不得擅自引入限制委托方正常使用的条款。",
             ]),
-            ("双方权利义务", [
-                "甲方应及时提供服务所需的资料、数据与工作条件，并对乙方合理的配合请求予以响应。",
-                "乙方应恪尽职守，按约定的进度、质量完成服务；对服务过程中知悉的甲方业务数据，"
-                "仅得在合同目的范围内使用。",
+            ("重大承诺", [
+                "服务方承诺按适用法律和双方的信息安全要求处理项目数据，不将业务数据用于模型训练、对外展示或本合同目的之外的用途。",
             ]),
-            clause_confidential("五"),
-            clause_breach(),
-            clause_force_majeure(),
-            clause_dispute(),
-            clause_final("肆"),
+            ("保密与人员管理", [
+                "接触保密信息的人员应受不低于本合同的保密义务约束。项目结束或委托方要求时，服务方应按约返还或安全删除相关资料。",
+            ]),
+            ("违约、争议与其他", [
+                "一方严重违反约定且经书面催告仍未补救的，守约方可终止未履行部分并主张可证明的直接损失。争议应先协商，协商不成的依法处理。",
+                "本模板须与服务说明、里程碑和验收标准一并完成企业内部审批后，方可进入签署安排。",
+            ]),
         ],
-    ),
-    # 4. 房屋租赁合同范本
-    dict(
-        filename="房屋租赁合同范本.docx",
-        title="房 屋 租 赁 合 同",
-        party_a_role="出租方", party_b_role="承租方",
-        recital="甲方对本合同项下房屋享有合法的出租权利，乙方愿意承租该房屋用于办公经营，"
-                "双方就房屋租赁事宜协商一致。",
-        clauses=[
-            ("租赁房屋", [
-                "甲方将坐落于＿＿＿＿＿＿＿＿＿＿＿＿＿＿的房屋（建筑面积约＿＿＿＿平方米，"
-                "以下简称租赁房屋）出租给乙方使用。房屋现状、附属设施及交付标准以双方签署的《房屋交接清单》为准。",
-                "乙方承租房屋用于合法办公经营，未经甲方书面同意不得改变房屋用途，"
-                "不得转租、转借或与他人合用。",
-            ]),
-            ("租期", [
-                "租赁期限自＿＿＿＿年＿＿月＿＿日起至＿＿＿＿年＿＿月＿＿日止。"
-                "租赁期满乙方需继续承租的，应提前六十日书面通知甲方，双方另行协商续租事宜；"
-                "同等条件下乙方享有优先承租权。",
-            ]),
-            ("租金、押金与支付", [
-                "月租金为人民币（大写）＿＿＿＿＿＿元（¥＿＿＿＿元），按季支付，"
-                "每期租金应于该期起始日前十日内支付。甲方收取租金后应向乙方开具合规发票。",
-                "乙方应于合同签订后五个工作日内向甲方支付押金。租赁期满或合同解除后，"
-                "乙方结清应付费用并按约定返还房屋的，甲方应在十五个工作日内无息退还押金。",
-            ]),
-            ("房屋的使用与维护", [
-                "租赁期内房屋及附属设施的自然损耗由甲方负责维修；因乙方使用不当造成损坏的，"
-                "由乙方负责修复或赔偿。乙方装修装饰应事先取得甲方书面同意，并依法办理相关手续。",
-                "租赁期内的水费、电费、物业费等因实际使用产生的费用由乙方承担，法律法规另有规定的除外。",
-            ]),
-            ("合同解除与房屋返还", [
-                "乙方逾期支付租金超过三十日，或擅自改变房屋用途、擅自转租的，甲方有权解除本合同；"
-                "租赁房屋因不可归责于双方的原因导致无法正常使用超过三十日的，乙方有权解除本合同。",
-                "租赁期满或合同解除后，乙方应在十日内腾空并返还房屋。逾期返还的，"
-                "每逾期一日按日租金标准的两倍向甲方支付房屋占用费。",
-            ]),
-            clause_breach(),
-            clause_force_majeure(),
-            clause_dispute(),
-            clause_final("贰"),
+    },
+    {
+        "filename": "产品销售合同范本.docx",
+        "title": "产品销售合同",
+        "type_code": "DEMO_SALES",
+        "purpose": "适用于企业标准产品销售、交付、收款及售后服务场景",
+        "party_a": "销售方",
+        "party_b": "购买方",
+        "recital": "销售方拟向购买方销售约定产品，购买方同意按约受领并支付价款，双方就产品、交付和售后事项达成如下约定。",
+        "transaction_rows": [
+            ("销售产品", "【名称、型号、数量，以经确认的销售清单为准】"),
+            ("合同金额", "人民币（含税）【待填写】元；币种：人民币"),
+            ("交付安排", "【交付日期】前送达【交付地点】"),
+            ("收款条件", "预付款【待填写】%；交付后【待填写】%；其他【待填写】"),
         ],
-    ),
-    # 5. 劳务外包合同范本
-    dict(
-        filename="劳务外包合同范本.docx",
-        title="劳 务 外 包 合 同",
-        party_a_role="发包方", party_b_role="承包方",
-        recital="甲方因经营需要将部分辅助性业务事项发包给乙方完成，"
-                "乙方具备承接该等业务所需的组织能力与用工资质，愿意按照约定的标准组织人员完成外包业务。",
-        clauses=[
-            ("外包内容", [
-                "甲方将本合同附件《外包业务说明》所列业务事项发包给乙方，"
-                "由乙方自行组织人员、自行管理并按约定的质量标准完成。"
-                "乙方人员的招用、培训、考勤、报酬发放及日常管理均由乙方负责。",
+        "clauses": [
+            ("产品与订单", [
+                "产品名称、型号、数量、单价和配置以双方确认的销售清单为准。销售方应交付符合约定且具备合法来源的产品。",
+                "购买方提出变更需求时，双方应确认对价格、进度和库存的影响；未经确认的口头变更不构成销售方的交付义务。",
             ]),
-            ("外包费用与结算", [
-                "外包费用按附件约定的计价方式结算。乙方应于每月五日前向甲方提交上月业务完成情况"
-                "与结算清单，经甲方核对确认后十五个工作日内支付，乙方应先行开具等额合规发票。",
+            ("价款与结算", [
+                "购买方应按约定节点付款。销售方在收款前提供相应的合法有效发票；双方对账差异不影响无争议部分的按期支付。",
             ]),
-            ("用工合规", [
-                "乙方应依法与其派出人员建立劳动关系或用工关系，依法缴纳社会保险，按时足额支付劳动报酬。"
-                "乙方人员与甲方之间不存在劳动关系；因乙方用工引起的劳动争议及相关责任均由乙方承担。",
-                "乙方人员在提供劳务过程中造成甲方或第三方损失的，由乙方依法承担相应责任；"
-                "甲方先行承担的，有权向乙方追偿。",
+            ("交付、检验与风险", [
+                "销售方按约定方式交付产品，购买方应及时核对数量、外观及随附资料。发现明显不符合项的，应在合理检验期内书面提出。",
+                "产品毁损、灭失风险自双方确认的交付节点转移，但风险转移不影响销售方应承担的质量保证责任。",
             ]),
-            ("双方权利义务", [
-                "甲方有权对外包业务的完成质量进行检查、考核，对不符合约定标准的事项要求乙方限期整改。",
-                "乙方应遵守甲方工作场所的安全、保密及管理规范，督促其人员规范作业；"
-                "对不适宜继续从事外包业务的人员，应根据甲方合理要求及时予以调整。",
+            ("售后服务", [
+                "销售方按产品说明和销售清单提供质保及合理技术支持。因购买方不当使用、擅自改装或超出产品条件使用导致的问题不属于免费质保范围。",
             ]),
-            clause_confidential("二"),
-            clause_breach("乙方未依法为其人员缴纳社会保险或未及时足额支付劳动报酬，"
-                          "导致甲方被主张责任的，乙方应赔偿甲方因此遭受的全部损失。"),
-            clause_force_majeure(),
-            clause_dispute(),
-            clause_final("贰"),
+            ("重大承诺", [
+                "双方承诺交易信息真实完整，不通过虚构订单、拆分交易或其他方式规避企业内部审批和适用的监管要求。",
+            ]),
+            ("品牌与保密", [
+                "未经另一方书面许可，任何一方不得以对方名义发布宣传或作出超出合同范围的承诺。双方对履约中知悉的非公开信息承担合理保密义务。",
+            ]),
+            ("违约、争议与其他", [
+                "一方未按约履行的，应在收到书面通知后及时补救；未能补救并给对方造成损失的，应承担可证明的直接损失。争议应先协商，协商不成的依法处理。",
+                "本模板与销售清单应共同完成企业内部审批后，方可进入签署安排。",
+            ]),
         ],
-    ),
-    # 6. 保密协议范本
-    dict(
-        filename="保密协议范本.docx",
-        title="保 密 协 议",
-        party_a_role="披露方", party_b_role="接收方",
-        recital="双方拟就潜在的业务合作事项进行接洽与磋商，在此过程中甲方将向乙方披露相关保密信息，"
-                "为明确保密信息的使用与保护规则，双方达成本协议。",
-        clauses=[
-            ("保密信息的范围", [
-                "本协议所称保密信息，指甲方以书面、口头、电子数据或其他任何形式向乙方披露的，"
-                "与其业务、技术、经营、财务、人员、客户有关的全部信息，包括但不限于技术方案、"
-                "源代码、产品规划、报价信息、客户名单、经营数据，以及标明保密或依其性质应予保密的其他信息。",
-                "下列信息不属于保密信息：披露时已为公众所知悉的信息；非因乙方过错已经公开的信息；"
-                "乙方能证明在接收前已合法持有的信息；乙方从有合法权利的第三方正当获得且不负保密义务的信息。",
-            ]),
-            ("保密义务", [
-                "乙方应以不低于保护自身同类信息的谨慎程度（且不低于合理注意标准）保管保密信息；"
-                "未经甲方事先书面同意，不得向任何第三方披露，不得用于合作评估目的之外的任何用途。",
-                "乙方仅可向确有必要知悉的本方工作人员披露保密信息，并应确保该等人员遵守本协议项下的保密义务；"
-                "该等人员违反保密义务的，视为乙方违约。",
-            ]),
-            ("信息的返还与销毁", [
-                "甲方随时有权书面要求乙方返还或销毁保密信息。乙方应在收到要求后十个工作日内返还全部载有"
-                "保密信息的资料及其复制件，或按甲方要求予以销毁并出具书面确认。",
-            ]),
-            ("知识产权", [
-                "甲方披露保密信息不构成对乙方的任何知识产权许可、转让或授权。"
-                "乙方不得基于保密信息申请任何知识产权，亦不得对保密信息进行反向工程、反编译或解构分析。",
-            ]),
-            ("保密期限", [
-                "本协议项下保密义务自乙方接收保密信息之日起算，持续至该信息依法进入公有领域之日；"
-                "双方另有书面约定的，从其约定，但不短于本协议约定的保密期限。",
-            ]),
-            clause_breach("乙方违反本协议约定披露或不当使用保密信息的，应向甲方支付违约金人民币＿＿＿＿＿＿元；"
-                          "违约金不足以弥补甲方实际损失的，乙方还应就差额部分予以赔偿。"),
-            clause_dispute(),
-            clause_final("贰", "本协议的解除或终止不影响保密义务条款、违约责任条款及争议解决条款的继续有效。"),
+    },
+    {
+        "filename": "标准保密协议范本.docx",
+        "title": "双向保密协议",
+        "type_code": "DEMO_NDA",
+        "purpose": "适用于商务洽谈、技术交流或项目评估前的双向信息披露场景",
+        "party_a": "披露方／接收方 A",
+        "party_b": "披露方／接收方 B",
+        "recital": "双方拟就潜在合作事项开展交流，并可能互相披露非公开信息，现就保密信息的使用、保护与返还达成如下约定。",
+        "transaction_rows": [
+            ("合作事项", "【项目或洽谈主题】"),
+            ("披露目的", "仅用于评估、推进和执行上述合作事项"),
+            ("保密期限", "自首次披露之日起【待填写】年"),
+            ("协议期间", "自【开始日期】至【结束日期】"),
         ],
-    ),
-    # 7. 设备维保合同范本
-    dict(
-        filename="设备维保合同范本.docx",
-        title="设 备 维 保 合 同",
-        party_a_role="委托方", party_b_role="维保方",
-        recital="甲方为保障其在用设备的稳定运行，拟委托乙方对本合同约定的设备提供维护保养服务，"
-                "乙方具备相应的维保能力与技术条件，愿意接受委托。",
-        clauses=[
-            ("维保范围与内容", [
-                "乙方对本合同附件《维保设备清单》所列设备提供定期巡检、预防性保养、故障维修及技术支持服务。"
-                "维保服务等级、巡检频次与响应时限以附件《服务等级说明》为准。",
+        "clauses": [
+            ("保密信息", [
+                "保密信息是指一方以书面、口头、电子或其他形式披露，且已标明保密或依其性质、披露情境应合理理解为非公开的信息。",
+                "已为公众合法知悉、接收方在披露前已合法掌握、从无保密义务的第三方合法取得，或由接收方独立开发的信息不属于保密信息。",
             ]),
-            ("维保费用与支付", [
-                "年度维保费用为人民币（大写）＿＿＿＿＿＿＿＿元（¥＿＿＿＿＿＿元），含税，"
-                "按半年度分两期支付，每期于对应服务期起始后一个月内支付。"
-                "维保范围外的维修事项，双方另行协商确认费用后实施。",
+            ("使用限制", [
+                "接收方仅可为约定的披露目的使用保密信息，不得用于竞争分析、逆向工程、模型训练或未经许可的对外展示。",
+                "接收方仅向确有知悉必要且受相应保密义务约束的人员披露，并对该等人员的合规使用承担管理责任。",
             ]),
-            ("服务响应", [
-                "设备发生故障的，甲方可通过双方约定的渠道报修；乙方应在约定的响应时限内响应，"
-                "并在合理期限内排除故障。因故障无法及时排除影响甲方正常经营的，"
-                "乙方应提供备用方案或替代设备支持。",
-                "乙方每次维保服务完成后应填写服务记录单，经甲方现场人员签字确认后作为结算与考核依据。",
+            ("保护措施", [
+                "接收方应采取不低于保护自身同类重要信息的合理措施，防止保密信息被未经授权地访问、复制、传输、修改或披露。",
+                "发生或可能发生信息泄露时，接收方应及时通知披露方，采取合理止损措施，并配合查明影响范围。",
             ]),
-            ("备件与更换", [
-                "维保过程中需要更换零部件的，乙方应使用符合原厂标准或经甲方认可的合格备件。"
-                "备件费用承担方式以附件约定为准；更换下的旧件归甲方所有，乙方应予以登记并交还。",
+            ("依法披露", [
+                "接收方因法律、监管或有权机关要求必须披露时，应在法律允许范围内提前通知披露方，并将披露范围限制在必要限度。",
             ]),
-            ("双方权利义务", [
-                "甲方应按照设备操作规范使用设备，为乙方维保作业提供必要的现场条件与配合。",
-                "乙方应遵守甲方现场安全管理规定，安排具备相应资质与技能的人员实施维保作业；"
-                "作业过程中造成甲方财产损失或人身损害的，由乙方依法承担责任。",
+            ("返还与删除", [
+                "披露方提出书面要求或合作事项终止后，接收方应按要求返还、删除或销毁保密信息及其复制件；依法必须保留的备份继续受本协议约束。",
             ]),
-            clause_confidential("二"),
-            clause_breach("乙方累计三次未在约定响应时限内响应报修的，甲方有权解除本合同，"
-                          "并要求乙方按年度维保费用的百分之十支付违约金。"),
-            clause_force_majeure(),
-            clause_dispute(),
-            clause_final("贰"),
+            ("权利保留", [
+                "信息披露不构成知识产权转让、许可或任何交易承诺。任何进一步合作均以双方另行签署并完成内部审批的正式文件为准。",
+            ]),
+            ("责任、争议与其他", [
+                "违反保密义务的一方应及时停止违约、采取补救措施，并赔偿对方因此遭受的可证明直接损失。争议应先协商，协商不成的依法处理。",
+                "本模板须完成企业内部审批后方可进入签署安排；任何一方均无义务仅因本协议而继续推进交易。",
+            ]),
         ],
-    ),
-    # 8. 供货补充协议
-    dict(
-        filename="供货补充协议.docx",
-        title="供 货 补 充 协 议",
-        party_a_role="采购方", party_b_role="供货方",
-        recital="双方此前已就货物供应事宜签订原供货合同（合同编号：＿＿＿＿＿＿＿＿，以下简称原合同）。"
-                "现因甲方业务量调整，双方就增加供货数量、调整交付安排等事项协商一致，签订本补充协议。",
-        clauses=[
-            ("补充供货内容", [
-                "在原合同约定的供货范围基础上，乙方向甲方增补供应的货物名称、规格、数量及单价"
-                "以本协议附件《增补供货清单》为准。除本协议明确变更的内容外，"
-                "增补货物的质量标准、包装要求均按原合同约定执行。",
-            ]),
-            ("价款调整与支付", [
-                "本协议项下增补货物价款合计人民币（大写）＿＿＿＿＿＿＿＿元（¥＿＿＿＿＿＿元），含税。"
-                "该价款并入原合同价款一并结算，支付节点与支付比例按原合同约定的付款方式执行。",
-            ]),
-            ("交付安排调整", [
-                "增补货物分两批交付，具体批次、数量与交付日期以附件约定为准。"
-                "原合同项下尚未交付批次的交付日期相应顺延，顺延后的交付计划以附件为准；"
-                "除本协议载明的调整外，双方均不因此向对方主张违约责任。",
-            ]),
-            ("质量与验收", [
-                "增补货物的验收程序、质保期及质量责任按照原合同约定执行；"
-                "验收标准与原合同不一致的，以本协议附件载明的标准为准。",
-            ]),
-            ("与原合同的关系", [
-                "本协议是原合同的组成部分，与原合同具有同等法律效力。"
-                "本协议与原合同约定不一致的，以本协议为准；本协议未作约定的事项，仍按原合同执行。",
-                "除本协议明确变更的条款外，原合同其余条款继续有效，双方应继续履行。",
-            ]),
-            clause_breach(),
-            clause_dispute(),
-            clause_final("贰"),
-        ],
-    ),
+    },
 ]
 
 
+def set_run_font(run, *, size: float = 11, bold: bool = False, color: RGBColor = INK):
+    run.font.name = DOC_FONT
+    r_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+    r_fonts.set(qn("w:ascii"), DOC_FONT)
+    r_fonts.set(qn("w:hAnsi"), DOC_FONT)
+    r_fonts.set(qn("w:eastAsia"), DOC_FONT)
+    run.font.size = Pt(size)
+    run.bold = bold
+    run.font.color.rgb = color
+
+
+def set_cell_shading(cell, fill: str):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = tc_pr.find(qn("w:shd"))
+    if shd is None:
+        shd = OxmlElement("w:shd")
+        tc_pr.append(shd)
+    shd.set(qn("w:fill"), fill)
+
+
+def set_cell_margins(cell):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_mar = tc_pr.first_child_found_in("w:tcMar")
+    if tc_mar is None:
+        tc_mar = OxmlElement("w:tcMar")
+        tc_pr.append(tc_mar)
+    for edge, value in (
+        ("top", CELL_MARGIN_TOP_BOTTOM_DXA),
+        ("bottom", CELL_MARGIN_TOP_BOTTOM_DXA),
+        ("start", CELL_MARGIN_START_END_DXA),
+        ("end", CELL_MARGIN_START_END_DXA),
+    ):
+        node = tc_mar.find(qn(f"w:{edge}"))
+        if node is None:
+            node = OxmlElement(f"w:{edge}")
+            tc_mar.append(node)
+        node.set(qn("w:w"), str(value))
+        node.set(qn("w:type"), "dxa")
+
+
+def set_table_geometry(table, widths_dxa: list[int], *, indent_dxa: int = TABLE_INDENT_DXA):
+    if sum(widths_dxa) != CONTENT_WIDTH_DXA:
+        raise ValueError(f"table widths must total {CONTENT_WIDTH_DXA}: {widths_dxa}")
+    table.autofit = False
+    table.alignment = WD_TABLE_ALIGNMENT.LEFT
+    tbl_pr = table._tbl.tblPr
+    tbl_w = tbl_pr.first_child_found_in("w:tblW")
+    tbl_w.set(qn("w:w"), str(CONTENT_WIDTH_DXA))
+    tbl_w.set(qn("w:type"), "dxa")
+    tbl_ind = tbl_pr.first_child_found_in("w:tblInd")
+    if tbl_ind is None:
+        tbl_ind = OxmlElement("w:tblInd")
+        tbl_pr.append(tbl_ind)
+    tbl_ind.set(qn("w:w"), str(indent_dxa))
+    tbl_ind.set(qn("w:type"), "dxa")
+    layout = tbl_pr.first_child_found_in("w:tblLayout")
+    if layout is None:
+        layout = OxmlElement("w:tblLayout")
+        tbl_pr.append(layout)
+    layout.set(qn("w:type"), "fixed")
+
+    grid = table._tbl.tblGrid
+    for child in list(grid):
+        grid.remove(child)
+    for width in widths_dxa:
+        col = OxmlElement("w:gridCol")
+        col.set(qn("w:w"), str(width))
+        grid.append(col)
+
+    for row in table.rows:
+        for index, cell in enumerate(row.cells):
+            cell.width = Inches(widths_dxa[index] / 1440)
+            tc_w = cell._tc.get_or_add_tcPr().first_child_found_in("w:tcW")
+            tc_w.set(qn("w:w"), str(widths_dxa[index]))
+            tc_w.set(qn("w:type"), "dxa")
+            set_cell_margins(cell)
+
+
+def add_page_field(paragraph):
+    run = paragraph.add_run()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    instruction = OxmlElement("w:instrText")
+    instruction.set(qn("xml:space"), "preserve")
+    instruction.text = " PAGE "
+    separate = OxmlElement("w:fldChar")
+    separate.set(qn("w:fldCharType"), "separate")
+    text = OxmlElement("w:t")
+    text.text = "1"
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    run._r.extend([begin, instruction, separate, text, end])
+    set_run_font(run, size=9, color=MUTED)
+
+
+def configure_document(doc: Document, short_title: str):
+    section = doc.sections[0]
+    section.page_width = Cm(21.0)
+    section.page_height = Cm(29.7)
+    section.top_margin = Cm(2.5)
+    section.bottom_margin = Cm(2.5)
+    section.left_margin = Cm(2.5)
+    section.right_margin = Cm(2.5)
+    section.header_distance = Cm(1.25)
+    section.footer_distance = Cm(1.25)
+
+    normal = doc.styles["Normal"]
+    normal.font.name = DOC_FONT
+    normal._element.rPr.rFonts.set(qn("w:ascii"), DOC_FONT)
+    normal._element.rPr.rFonts.set(qn("w:hAnsi"), DOC_FONT)
+    normal._element.rPr.rFonts.set(qn("w:eastAsia"), DOC_FONT)
+    normal.font.size = Pt(11)
+    normal.font.color.rgb = INK
+    normal.paragraph_format.space_before = Pt(0)
+    normal.paragraph_format.space_after = Pt(6)
+    normal.paragraph_format.line_spacing = 1.25
+    normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+    heading = doc.styles["Heading 1"]
+    heading.font.name = DOC_FONT
+    heading._element.rPr.rFonts.set(qn("w:ascii"), DOC_FONT)
+    heading._element.rPr.rFonts.set(qn("w:hAnsi"), DOC_FONT)
+    heading._element.rPr.rFonts.set(qn("w:eastAsia"), DOC_FONT)
+    heading.font.size = Pt(12)
+    heading.font.bold = True
+    heading.font.color.rgb = INK
+    heading.paragraph_format.space_before = Pt(11)
+    heading.paragraph_format.space_after = Pt(6)
+    heading.paragraph_format.line_spacing = 1.0
+    heading.paragraph_format.keep_with_next = True
+
+    header_p = section.header.paragraphs[0]
+    header_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    header_p.paragraph_format.space_after = Pt(0)
+    left = header_p.add_run("TuriX 合同管理系统  ·  演示范本")
+    set_run_font(left, size=9, bold=True, color=MUTED)
+    right = header_p.add_run(f"    {short_title}")
+    set_run_font(right, size=9, color=MUTED)
+
+    footer_p = section.footer.paragraphs[0]
+    footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer_p.paragraph_format.space_before = Pt(0)
+    footer_p.paragraph_format.space_after = Pt(0)
+    prefix = footer_p.add_run("仅用于产品演示  ·  第 ")
+    set_run_font(prefix, size=9, color=MUTED)
+    add_page_field(footer_p)
+    suffix = footer_p.add_run(" 页")
+    set_run_font(suffix, size=9, color=MUTED)
+
+
+def next_numbering_ids(doc: Document) -> tuple[int, int]:
+    numbering = doc.part.numbering_part.element
+    abstract_ids = [int(node.get(qn("w:abstractNumId"))) for node in numbering.findall(qn("w:abstractNum"))]
+    num_ids = [int(node.get(qn("w:numId"))) for node in numbering.findall(qn("w:num"))]
+    return (max(abstract_ids, default=-1) + 1, max(num_ids, default=0) + 1)
+
+
+def add_clause_numbering(doc: Document) -> int:
+    numbering = doc.part.numbering_part.element
+    abstract_id, num_id = next_numbering_ids(doc)
+    abstract = OxmlElement("w:abstractNum")
+    abstract.set(qn("w:abstractNumId"), str(abstract_id))
+    multi = OxmlElement("w:multiLevelType")
+    multi.set(qn("w:val"), "singleLevel")
+    abstract.append(multi)
+    level = OxmlElement("w:lvl")
+    level.set(qn("w:ilvl"), "0")
+    start = OxmlElement("w:start")
+    start.set(qn("w:val"), "1")
+    num_fmt = OxmlElement("w:numFmt")
+    num_fmt.set(qn("w:val"), "decimal")
+    level_text = OxmlElement("w:lvlText")
+    level_text.set(qn("w:val"), "第%1条")
+    suffix = OxmlElement("w:suff")
+    suffix.set(qn("w:val"), "space")
+    p_pr = OxmlElement("w:pPr")
+    ind = OxmlElement("w:ind")
+    ind.set(qn("w:left"), "0")
+    ind.set(qn("w:hanging"), "0")
+    p_pr.append(ind)
+    level.extend([start, num_fmt, level_text, suffix, p_pr])
+    abstract.append(level)
+    numbering.append(abstract)
+    num = OxmlElement("w:num")
+    num.set(qn("w:numId"), str(num_id))
+    abstract_ref = OxmlElement("w:abstractNumId")
+    abstract_ref.set(qn("w:val"), str(abstract_id))
+    num.append(abstract_ref)
+    numbering.append(num)
+    return num_id
+
+
+def apply_numbering(paragraph, num_id: int):
+    p_pr = paragraph._p.get_or_add_pPr()
+    num_pr = OxmlElement("w:numPr")
+    ilvl = OxmlElement("w:ilvl")
+    ilvl.set(qn("w:val"), "0")
+    num_id_node = OxmlElement("w:numId")
+    num_id_node.set(qn("w:val"), str(num_id))
+    num_pr.extend([ilvl, num_id_node])
+    p_pr.append(num_pr)
+
+
+def add_text_paragraph(doc: Document, text: str):
+    paragraph = doc.add_paragraph()
+    paragraph.paragraph_format.first_line_indent = Pt(22)
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(6)
+    paragraph.paragraph_format.line_spacing = 1.25
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    run = paragraph.add_run(text)
+    set_run_font(run)
+    return paragraph
+
+
+def add_label_value_table(doc: Document, rows: Iterable[tuple[str, str]], *, fill: str = PALE_GRAY):
+    table = doc.add_table(rows=0, cols=2)
+    table.style = "Table Grid"
+    for label, value in rows:
+        cells = table.add_row().cells
+        cells[0].vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        cells[1].vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        set_cell_shading(cells[0], fill)
+        for cell in cells:
+            paragraph = cell.paragraphs[0]
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(2)
+            paragraph.paragraph_format.line_spacing = 1.15
+        label_run = cells[0].paragraphs[0].add_run(label)
+        set_run_font(label_run, size=10.5, bold=True)
+        value_run = cells[1].paragraphs[0].add_run(value)
+        set_run_font(value_run, size=10.5)
+    set_table_geometry(table, [1700, 7372])
+    spacer = doc.add_paragraph()
+    spacer.paragraph_format.space_after = Pt(0)
+    return table
+
+
+def add_title_block(doc: Document, spec: dict):
+    kicker = doc.add_paragraph()
+    kicker.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    kicker.paragraph_format.space_before = Pt(10)
+    kicker.paragraph_format.space_after = Pt(4)
+    run = kicker.add_run("TURIX · 标准合同范本")
+    set_run_font(run, size=9.5, bold=True, color=ACCENT)
+
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.paragraph_format.space_before = Pt(0)
+    title.paragraph_format.space_after = Pt(5)
+    title.paragraph_format.keep_with_next = True
+    run = title.add_run(spec["title"])
+    set_run_font(run, size=22, bold=True, color=INK)
+    run._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), DOC_FONT)
+
+    subtitle = doc.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitle.paragraph_format.space_before = Pt(0)
+    subtitle.paragraph_format.space_after = Pt(14)
+    run = subtitle.add_run(f"原创演示模板 · V1.0 · {spec['type_code']}")
+    set_run_font(run, size=9.5, color=MUTED)
+
+    add_label_value_table(
+        doc,
+        [
+            ("适用场景", spec["purpose"]),
+            ("合同编号", "【提交审批后由系统生成】"),
+            ("审批状态", "【草稿／协同中／审批中／审批完成】"),
+        ],
+        fill=PALE_BLUE,
+    )
+
+
+def add_section_table(doc: Document, title_text: str, rows: Iterable[tuple[str, str]]):
+    heading = doc.add_paragraph()
+    heading.paragraph_format.space_before = Pt(8)
+    heading.paragraph_format.space_after = Pt(6)
+    heading.paragraph_format.keep_with_next = True
+    run = heading.add_run(title_text)
+    set_run_font(run, size=12, bold=True)
+    run._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), DOC_FONT)
+    add_label_value_table(doc, rows)
+
+
+def add_signature_placeholder(doc: Document, spec: dict):
+    heading = doc.add_paragraph()
+    heading.paragraph_format.space_before = Pt(12)
+    heading.paragraph_format.space_after = Pt(6)
+    heading.paragraph_format.keep_with_next = True
+    run = heading.add_run("审批完成后的签署信息（本期系统不执行签署）")
+    set_run_font(run, size=11, bold=True, color=MUTED)
+    table = doc.add_table(rows=3, cols=2)
+    table.style = "Table Grid"
+    values = [
+        (f"{spec['party_a']}：________________", f"{spec['party_b']}：________________"),
+        ("授权代表：________________", "授权代表：________________"),
+        ("日期：____年__月__日", "日期：____年__月__日"),
+    ]
+    for row, values_in_row in zip(table.rows, values):
+        for cell, value in zip(row.cells, values_in_row):
+            paragraph = cell.paragraphs[0]
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(5)
+            paragraph.paragraph_format.line_spacing = 1.15
+            run = paragraph.add_run(value)
+            set_run_font(run, size=10.5)
+    set_table_geometry(table, [4536, 4536])
+
+
+def _find_font_file(weight: str) -> Path | None:
+    return next((candidate for candidate in EMBEDDED_FONT_CANDIDATES[weight] if candidate.exists()), None)
+
+
+@lru_cache(maxsize=4)
+def _load_embeddable_font(font_path_text: str) -> bytes:
+    font_path = Path(font_path_text)
+    subsetter = shutil.which("hb-subset")
+    if not subsetter:
+        return font_path.read_bytes()
+    static_text = (
+        "TuriX 合同管理系统 演示范本 标准合同 原创模板 版本 编号 状态 草稿 协同中 审批中 审批完成 "
+        "第一二三四五六七八九十条年月日 ABCDEFGHIJKLMNOPQRSTUVWXYZ "
+        "abcdefghijklmnopqrstuvwxyz 0123456789 _-—·，。；：！？【】（）％%／/\\________________"
+    )
+    subset_text = static_text + json.dumps(TEMPLATES, ensure_ascii=False, sort_keys=True)
+    with tempfile.TemporaryDirectory(prefix="turix-font-subset-") as temporary_dir:
+        output_path = Path(temporary_dir) / font_path.name
+        process = subprocess.run(
+            [subsetter, str(font_path), f"--text={subset_text}", f"--output-file={output_path}"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if process.returncode != 0 or not output_path.exists():
+            raise RuntimeError(f"font subset failed for {font_path}: {process.stderr.strip()}")
+        return output_path.read_bytes()
+
+
+def _obfuscate_font(font_bytes: bytes, font_key: uuid.UUID) -> bytes:
+    """Apply the ECMA-376 first-32-byte font obfuscation used by .odttf parts."""
+    payload = bytearray(font_bytes)
+    key = font_key.bytes_le
+    for index in range(min(32, len(payload))):
+        payload[index] ^= key[index % 16]
+    return bytes(payload)
+
+
+def embed_demo_fonts(path: Path):
+    """Embed OFL Source Han Sans so headless preview and Word render Chinese reliably."""
+    font_paths = {weight: _find_font_file(weight) for weight in ("regular", "bold")}
+    if not font_paths["regular"]:
+        # The DOCX remains standards-compliant and Word can substitute the named font.
+        # Current macOS demo setup has the OFL font, so verified artifacts embed it.
+        return
+
+    with ZipFile(path, "r") as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+
+    font_table = etree.fromstring(parts["word/fontTable.xml"])
+    font_node = font_table.xpath(f"./w:font[@w:name='{DOC_FONT}']", namespaces={"w": W_NS})
+    if font_node:
+        font_node = font_node[0]
+    else:
+        font_node = etree.SubElement(font_table, f"{{{W_NS}}}font")
+        font_node.set(f"{{{W_NS}}}name", DOC_FONT)
+
+    rels_name = "word/_rels/fontTable.xml.rels"
+    if rels_name in parts:
+        rels = etree.fromstring(parts[rels_name])
+    else:
+        rels = etree.Element(f"{{{PKG_REL_NS}}}Relationships", nsmap={None: PKG_REL_NS})
+    existing_ids = []
+    for relation in rels:
+        relation_id = relation.get("Id", "")
+        if relation_id.startswith("rId") and relation_id[3:].isdigit():
+            existing_ids.append(int(relation_id[3:]))
+    next_rel_id = max(existing_ids, default=0) + 1
+
+    for weight, tag_name in (("regular", "embedRegular"), ("bold", "embedBold")):
+        font_path = font_paths[weight] or font_paths["regular"]
+        font_bytes = _load_embeddable_font(str(font_path))
+        digest = hashlib.sha256(font_bytes + weight.encode("ascii")).digest()
+        font_key = uuid.UUID(bytes=digest[:16])
+        relationship_id = f"rId{next_rel_id}"
+        next_rel_id += 1
+        part_name = f"word/fonts/turix-{weight}.odttf"
+        parts[part_name] = _obfuscate_font(font_bytes, font_key)
+
+        relation = etree.SubElement(rels, f"{{{PKG_REL_NS}}}Relationship")
+        relation.set("Id", relationship_id)
+        relation.set("Type", FONT_REL_TYPE)
+        relation.set("Target", f"fonts/turix-{weight}.odttf")
+
+        existing = font_node.find(f"{{{W_NS}}}{tag_name}")
+        if existing is None:
+            existing = etree.SubElement(font_node, f"{{{W_NS}}}{tag_name}")
+        existing.set(f"{{{R_NS}}}id", relationship_id)
+        existing.set(f"{{{W_NS}}}fontKey", "{" + str(font_key).upper() + "}")
+
+    content_types = etree.fromstring(parts["[Content_Types].xml"])
+    defaults = content_types.findall(f"{{{CONTENT_TYPE_NS}}}Default")
+    if not any(node.get("Extension") == "odttf" for node in defaults):
+        default = etree.SubElement(content_types, f"{{{CONTENT_TYPE_NS}}}Default")
+        default.set("Extension", "odttf")
+        default.set("ContentType", OBFUSCATED_FONT_TYPE)
+
+    parts["word/fontTable.xml"] = etree.tostring(
+        font_table, xml_declaration=True, encoding="UTF-8", standalone="yes"
+    )
+    parts[rels_name] = etree.tostring(rels, xml_declaration=True, encoding="UTF-8", standalone="yes")
+    parts["[Content_Types].xml"] = etree.tostring(
+        content_types, xml_declaration=True, encoding="UTF-8", standalone="yes"
+    )
+
+    temporary = path.with_suffix(".font-embed.tmp")
+    with ZipFile(temporary, "w", compression=ZIP_DEFLATED) as archive:
+        for name, payload in parts.items():
+            archive.writestr(name, payload)
+    os.replace(temporary, path)
+
+
+def build_template(spec: dict) -> Path:
+    doc = Document()
+    configure_document(doc, spec["title"])
+    doc.core_properties.title = spec["title"]
+    doc.core_properties.subject = "TuriX 原创合同演示范本"
+    doc.core_properties.author = "TuriX"
+    doc.core_properties.keywords = "TuriX, CLM, demo, original"
+    doc.core_properties.comments = "仅用于 TuriX 产品演示，不构成法律意见。"
+    add_title_block(doc, spec)
+    add_section_table(
+        doc,
+        "合同主体",
+        [
+            (spec["party_a"], "【主体名称】；统一社会信用代码：【待填写】"),
+            (spec["party_b"], "【主体名称】；统一社会信用代码：【待填写】"),
+            ("业务归属", "签订部门：【待填写】；业务负责人：【待填写】"),
+        ],
+    )
+    add_section_table(doc, "交易信息", spec["transaction_rows"])
+    add_text_paragraph(doc, spec["recital"])
+
+    num_id = add_clause_numbering(doc)
+    for heading_text, paragraphs in spec["clauses"]:
+        heading = doc.add_paragraph(style="Heading 1")
+        apply_numbering(heading, num_id)
+        run = heading.add_run(heading_text)
+        set_run_font(run, size=12, bold=True)
+        run._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:eastAsia"), DOC_FONT)
+        for paragraph_text in paragraphs:
+            add_text_paragraph(doc, paragraph_text)
+
+    add_signature_placeholder(doc, spec)
+    final_note = doc.add_paragraph()
+    final_note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    final_note.paragraph_format.space_before = Pt(8)
+    final_note.paragraph_format.space_after = Pt(0)
+    run = final_note.add_run("— 本模板全部内容均为 TuriX 原创虚构演示数据 —")
+    set_run_font(run, size=9, color=MUTED)
+
+    path = OUT_DIR / spec["filename"]
+    doc.save(path)
+    embed_demo_fonts(path)
+    return path
+
+
+def audit_document(path: Path):
+    doc = Document(path)
+    section = doc.sections[0]
+    expected = {
+        "page_width": round(Cm(21.0).emu),
+        "page_height": round(Cm(29.7).emu),
+        "margin": round(Cm(2.5).emu),
+    }
+    actual = {
+        "page_width": section.page_width.emu,
+        "page_height": section.page_height.emu,
+        "margin": section.left_margin.emu,
+    }
+    # OOXML stores section geometry in twips, so python-docx rounds centimetres.
+    if any(abs(actual[key] - expected[key]) > 500 for key in expected):
+        raise RuntimeError(f"page geometry mismatch for {path.name}: {actual} != {expected}")
+    if len(doc.tables) < 4:
+        raise RuntimeError(f"expected structured tables in {path.name}")
+    numbering_xml = doc.part.numbering_part.element.xml
+    if "第%1条" not in numbering_xml:
+        raise RuntimeError(f"real clause numbering missing in {path.name}")
+    for table in doc.tables:
+        tbl_w = table._tbl.tblPr.first_child_found_in("w:tblW")
+        if tbl_w is None or tbl_w.get(qn("w:type")) != "dxa":
+            raise RuntimeError(f"fixed table width missing in {path.name}")
+    with ZipFile(path, "r") as archive:
+        if _find_font_file("regular") and "word/fonts/turix-regular.odttf" not in archive.namelist():
+            raise RuntimeError(f"embedded Chinese font missing in {path.name}")
+
+
 def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
-    for spec in DOCS:
-        path = build_doc(spec["filename"], spec["title"], spec["party_a_role"],
-                         spec["party_b_role"], spec["recital"], spec["clauses"])
-        size = os.path.getsize(path)
-        print("OK  %-24s %6d bytes" % (spec["filename"], size))
-    print("done: %d files -> %s" % (len(DOCS), OUT_DIR))
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    expected_names = {spec["filename"] for spec in TEMPLATES}
+    for old in OUT_DIR.glob("*.docx"):
+        if old.name not in expected_names:
+            old.unlink()
+
+    output = []
+    for spec in TEMPLATES:
+        path = build_template(spec)
+        audit_document(path)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        output.append({"file": str(path), "sha256": digest, "bytes": path.stat().st_size})
+    print(json.dumps(output, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

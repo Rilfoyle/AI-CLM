@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.bpm.service.message.dto.BpmMessageSendWhenTaskCre
 import cn.iocoder.yudao.module.bpm.service.message.dto.BpmMessageSendWhenTaskTimeoutReqDTO;
 import cn.iocoder.yudao.module.system.api.sms.SmsSendApi;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
@@ -32,44 +33,72 @@ public class BpmMessageServiceImpl implements BpmMessageService {
     @Resource
     private WebProperties webProperties;
 
+    /**
+     * SMS is an optional integration. The clean TuriX baseline deliberately
+     * contains no sample channel, template, credential or mobile number.
+     */
+    @Value("${turix.bpm.notification.sms-enabled:false}")
+    private boolean smsEnabled;
+
     @Override
     public void sendMessageWhenProcessInstanceApprove(BpmMessageSendWhenProcessInstanceApproveReqDTO reqDTO) {
+        if (!smsEnabled) {
+            return;
+        }
         Map<String, Object> templateParams = new HashMap<>();
         templateParams.put("processInstanceName", reqDTO.getProcessInstanceName());
         templateParams.put("detailUrl", getProcessInstanceDetailUrl(reqDTO.getProcessInstanceId()));
-        smsSendApi.sendSingleSmsToAdmin(BpmMessageConvert.INSTANCE.convert(reqDTO.getStartUserId(),
-                BpmMessageEnum.PROCESS_INSTANCE_APPROVE.getSmsTemplateCode(), templateParams));
+        sendSms(reqDTO.getStartUserId(), BpmMessageEnum.PROCESS_INSTANCE_APPROVE, templateParams);
     }
 
     @Override
     public void sendMessageWhenProcessInstanceReject(BpmMessageSendWhenProcessInstanceRejectReqDTO reqDTO) {
+        if (!smsEnabled) {
+            return;
+        }
         Map<String, Object> templateParams = new HashMap<>();
         templateParams.put("processInstanceName", reqDTO.getProcessInstanceName());
         templateParams.put("reason", reqDTO.getReason());
         templateParams.put("detailUrl", getProcessInstanceDetailUrl(reqDTO.getProcessInstanceId()));
-        smsSendApi.sendSingleSmsToAdmin(BpmMessageConvert.INSTANCE.convert(reqDTO.getStartUserId(),
-                BpmMessageEnum.PROCESS_INSTANCE_REJECT.getSmsTemplateCode(), templateParams));
+        sendSms(reqDTO.getStartUserId(), BpmMessageEnum.PROCESS_INSTANCE_REJECT, templateParams);
     }
 
     @Override
     public void sendMessageWhenTaskAssigned(BpmMessageSendWhenTaskCreatedReqDTO reqDTO) {
+        if (!smsEnabled) {
+            return;
+        }
         Map<String, Object> templateParams = new HashMap<>();
         templateParams.put("processInstanceName", reqDTO.getProcessInstanceName());
         templateParams.put("taskName", reqDTO.getTaskName());
         templateParams.put("startUserNickname", reqDTO.getStartUserNickname());
         templateParams.put("detailUrl", getProcessInstanceDetailUrl(reqDTO.getProcessInstanceId()));
-        smsSendApi.sendSingleSmsToAdmin(BpmMessageConvert.INSTANCE.convert(reqDTO.getAssigneeUserId(),
-                BpmMessageEnum.TASK_ASSIGNED.getSmsTemplateCode(), templateParams));
+        sendSms(reqDTO.getAssigneeUserId(), BpmMessageEnum.TASK_ASSIGNED, templateParams);
     }
 
     @Override
     public void sendMessageWhenTaskTimeout(BpmMessageSendWhenTaskTimeoutReqDTO reqDTO) {
+        if (!smsEnabled) {
+            return;
+        }
         Map<String, Object> templateParams = new HashMap<>();
         templateParams.put("processInstanceName", reqDTO.getProcessInstanceName());
         templateParams.put("taskName", reqDTO.getTaskName());
         templateParams.put("detailUrl", getProcessInstanceDetailUrl(reqDTO.getProcessInstanceId()));
-        smsSendApi.sendSingleSmsToAdmin(BpmMessageConvert.INSTANCE.convert(reqDTO.getAssigneeUserId(),
-                BpmMessageEnum.TASK_TIMEOUT.getSmsTemplateCode(), templateParams));
+        sendSms(reqDTO.getAssigneeUserId(), BpmMessageEnum.TASK_TIMEOUT, templateParams);
+    }
+
+    private void sendSms(Long userId, BpmMessageEnum messageType, Map<String, Object> templateParams) {
+        if (!smsEnabled) {
+            return;
+        }
+        try {
+            smsSendApi.sendSingleSmsToAdmin(BpmMessageConvert.INSTANCE.convert(userId,
+                    messageType.getSmsTemplateCode(), templateParams));
+        } catch (RuntimeException ex) {
+            // Notifications must never roll back a contract workflow operation.
+            log.error("[sendSms][TuriX BPM SMS failed, userId={}, type={}]", userId, messageType, ex);
+        }
     }
 
     private String getProcessInstanceDetailUrl(String taskId) {

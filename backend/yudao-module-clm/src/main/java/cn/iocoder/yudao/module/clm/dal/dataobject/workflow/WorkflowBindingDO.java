@@ -58,6 +58,20 @@ public class WorkflowBindingDO extends TenantBaseDO {
      * 绑定的合同类型版本编号
      */
     private Long contractTypeVersionId;
+    /** 提交审批时冻结的合同修订。 */
+    private Long submittedRevisionId;
+    /** 审批业务单当前查看的合同修订。 */
+    private Long currentRevisionId;
+    /** 审批通过时实际决定的合同修订。 */
+    private Long approvedRevisionId;
+    /** 命中的路由规则版本。 */
+    private Long routeVersionId;
+    /** 提交幂等键（合同内唯一）。 */
+    private String submitRequestId;
+    /** 被本业务单替代的旧审批业务单。 */
+    private Long supersedesCaseId;
+    /** 撤回原因。 */
+    private String cancelReason;
     /**
      * 提交时的表单快照 JSON
      */

@@ -6,12 +6,12 @@
           <el-button v-if="!readonly" size="default" @click="exportJson">
             <Icon icon="ep:download" /> 导出
           </el-button>
-          <el-button v-if="!readonly" size="default" @click="importJson">
+          <el-button v-if="!readonly && allowJsonImport" size="default" @click="importJson">
             <Icon icon="ep:upload" />导入
           </el-button>
           <!-- 用于打开本地文件-->
           <input
-            v-if="!readonly"
+            v-if="!readonly && allowJsonImport"
             type="file"
             id="files"
             ref="refFile"
@@ -76,6 +76,11 @@ const props = defineProps({
     required: true
   },
   readonly: {
+    type: Boolean,
+    required: false,
+    default: true
+  },
+  allowJsonImport: {
     type: Boolean,
     required: false,
     default: true

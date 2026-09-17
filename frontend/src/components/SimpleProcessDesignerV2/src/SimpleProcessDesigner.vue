@@ -5,6 +5,7 @@
       v-if="processNodeTree"
       :flow-node="processNodeTree"
       :readonly="false"
+      :allow-json-import="allowJsonImport"
       @save="saveSimpleFlowModel"
     />
     <Dialog v-model="errorDialogVisible" title="保存失败" width="400" :fullscreen="false">
@@ -67,6 +68,65 @@ const props = defineProps({
   startDeptIds: {
     type: Array,
     required: false
+  },
+  // 业务表单可传入 FormCreate 字段规则，供条件分支选择字段。
+  // 默认不启用，避免改变现有通用 BPM 自定义表单的行为。
+  externalFormFields: {
+    type: Array as PropType<string[]>,
+    required: false,
+    default: () => []
+  },
+  enableCustomFormRules: {
+    type: Boolean,
+    required: false,
+    default: false
+  },
+  // 业务场景可限制“添加节点”菜单；空数组维持通用设计器的完整能力。
+  allowedNodeTypes: {
+    type: Array as PropType<number[]>,
+    required: false,
+    default: () => []
+  },
+  // 以下能力开关供业务场景收敛通用 BPM 配置；默认值保持原设计器行为。
+  allowConditionExpression: {
+    type: Boolean,
+    required: false,
+    default: true
+  },
+  allowedCandidateStrategies: {
+    type: Array as PropType<number[]>,
+    required: false,
+    default: () => []
+  },
+  allowedApproveTypes: {
+    type: Array as PropType<number[]>,
+    required: false,
+    default: () => []
+  },
+  allowTaskListeners: {
+    type: Boolean,
+    required: false,
+    default: true
+  },
+  allowSkipExpression: {
+    type: Boolean,
+    required: false,
+    default: true
+  },
+  allowJsonImport: {
+    type: Boolean,
+    required: false,
+    default: true
+  },
+  allowSignSetting: {
+    type: Boolean,
+    required: false,
+    default: true
+  },
+  allowFieldPermissionSetting: {
+    type: Boolean,
+    required: false,
+    default: true
   }
 })
 
@@ -74,6 +134,16 @@ const processData = inject('processData') as Ref
 const loading = ref(false)
 const formFields = ref<string[]>([])
 const formType = ref(props.modelFormType)
+const allowCustomFormRules = computed(() => props.enableCustomFormRules)
+const allowedNodeTypes = computed(() => props.allowedNodeTypes)
+const allowConditionExpression = computed(() => props.allowConditionExpression)
+const allowedCandidateStrategies = computed(() => props.allowedCandidateStrategies)
+const allowedApproveTypes = computed(() => props.allowedApproveTypes)
+const allowTaskListeners = computed(() => props.allowTaskListeners)
+const allowSkipExpression = computed(() => props.allowSkipExpression)
+const allowJsonImport = computed(() => props.allowJsonImport)
+const allowSignSetting = computed(() => props.allowSignSetting)
+const allowFieldPermissionSetting = computed(() => props.allowFieldPermissionSetting)
 
 // 监听 modelFormType 变化
 watch(
@@ -87,6 +157,10 @@ watch(
 watch(
   () => props.modelFormId,
   async (newVal) => {
+    if (props.externalFormFields.length > 0) {
+      formFields.value = [...props.externalFormFields]
+      return
+    }
     if (newVal) {
       const form = await getForm(newVal)
       formFields.value = form?.fields
@@ -98,6 +172,16 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => props.externalFormFields,
+  (fields) => {
+    if (fields.length > 0) {
+      formFields.value = [...fields]
+    }
+  },
+  { deep: true }
+)
+
 const roleOptions = ref<RoleApi.RoleVO[]>([]) // 角色列表
 const postOptions = ref<PostApi.PostVO[]>([]) // 岗位列表
 const userOptions = ref<UserApi.UserVO[]>([]) // 用户列表
@@ -107,6 +191,15 @@ const userGroupOptions = ref<UserGroupApi.UserGroupVO[]>([]) // 用户组列表
 
 provide('formFields', formFields)
 provide('formType', formType)
+provide('allowCustomFormRules', allowCustomFormRules)
+provide('allowedNodeTypes', allowedNodeTypes)
+provide('allowConditionExpression', allowConditionExpression)
+provide('allowedCandidateStrategies', allowedCandidateStrategies)
+provide('allowedApproveTypes', allowedApproveTypes)
+provide('allowTaskListeners', allowTaskListeners)
+provide('allowSkipExpression', allowSkipExpression)
+provide('allowSignSetting', allowSignSetting)
+provide('allowFieldPermissionSetting', allowFieldPermissionSetting)
 provide('roleList', roleOptions)
 provide('postList', postOptions)
 provide('userList', userOptions)

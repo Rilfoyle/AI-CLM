@@ -1,6 +1,20 @@
 import request from '@/config/axios'
 import type { RegisterVO, UserLoginVO } from './types'
 
+export type DemoRole = 'business' | 'legal' | 'contractadmin' | 'systemadmin'
+export type DemoRoleCode =
+  | 'clm_business'
+  | 'clm_legal'
+  | 'clm_contract_admin'
+  | 'clm_system_admin'
+
+export interface DemoRoleSwitchRespVO {
+  userId: number
+  accessToken: string
+  refreshToken: string
+  expiresTime: string | number
+}
+
 export interface SmsCodeVO {
   mobile: string
   scene: number
@@ -45,6 +59,15 @@ export const loginOut = () => {
 // 获取用户权限信息
 export const getInfo = () => {
   return request.get({ url: '/system/auth/get-permission-info' })
+}
+
+// 本地演示环境：在四个固定单角色账号间换发真实用户 token。
+// 后端默认关闭且只允许 TuriX/loopback；这里不传密码，也不伪造前端权限。
+export const switchDemoRole = (roleCode: DemoRoleCode) => {
+  return request.post<DemoRoleSwitchRespVO>({
+    url: '/system/auth/demo/switch-role',
+    data: { roleCode }
+  })
 }
 
 //获取登录验证码

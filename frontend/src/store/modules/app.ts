@@ -44,6 +44,15 @@ interface AppState {
 
 export const useAppStore = defineStore('app', {
   state: (): AppState => {
+    // One-time product-shell migration: existing RuoYi demos may have cached a
+    // horizontal layout, which would hide the new Yinuo-style grouped sidebar.
+    // Preserve any choices made after this migration marker is written.
+    const shellVersionKey = 'turixProductShellVersion'
+    const shellVersion = 'yinuo-v1'
+    if (wsCache.get(shellVersionKey) !== shellVersion) {
+      wsCache.set(CACHE_KEY.LAYOUT, 'sidebar-nav')
+      wsCache.set(shellVersionKey, shellVersion)
+    }
     return {
       userInfo: 'userInfo', // 登录信息存储字段-建议每个项目换一个字段，避免与其他项目冲突
       sizeMap: ['default', 'large', 'small'],
@@ -56,18 +65,18 @@ export const useAppStore = defineStore('app', {
       collapse: false, // 折叠菜单
       uniqueOpened: true, // 是否只保持一个子菜单的展开
       hamburger: true, // 折叠图标
-      screenfull: true, // 全屏图标
-      search: true, // 搜索图标
-      size: true, // 尺寸图标
-      locale: true, // 多语言图标
+      screenfull: false, // TuriX 默认隐藏通用后台全屏工具
+      search: false, // TuriX 菜单已按角色收敛，默认隐藏全局菜单搜索
+      size: false, // 默认使用统一的紧凑业务密度
+      locale: false, // 当前合同业务版本仅交付中文界面
       message: true, // 消息图标
-      im: true, //IM即时通讯图标
+      im: false, // 合同一期不暴露通用 IM 入口
       tagsView: true, // 标签页
       tagsViewImmerse: false, // 标签页沉浸
       tagsViewIcon: true, // 是否显示标签图标
       logo: true, // logo
       fixedHeader: true, // 固定toolheader
-      footer: true, // 显示页脚
+      footer: false, // 业务工作台不显示通用后台页脚
       greyMode: false, // 是否开始灰色模式，用于特殊悼念日
       fixedMenu: wsCache.get('fixedMenu') || false, // 是否固定菜单
 

@@ -9,61 +9,101 @@
         v-if="!readonly"
       >
         <div class="handler-item-wrapper">
-          <div class="handler-item" @click="addNode(NodeType.USER_TASK_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.USER_TASK_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.USER_TASK_NODE)"
+          >
             <div class="approve handler-item-icon">
               <span class="iconfont icon-approve icon-size"></span>
             </div>
             <div class="handler-item-text">审批人</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.TRANSACTOR_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.TRANSACTOR_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.TRANSACTOR_NODE)"
+          >
             <div class="transactor handler-item-icon">
               <span class="iconfont icon-transactor icon-size"></span>
             </div>
             <div class="handler-item-text">办理人</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.COPY_TASK_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.COPY_TASK_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.COPY_TASK_NODE)"
+          >
             <div class="handler-item-icon copy">
               <span class="iconfont icon-size icon-copy"></span>
             </div>
             <div class="handler-item-text">抄送</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.CONDITION_BRANCH_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.CONDITION_BRANCH_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.CONDITION_BRANCH_NODE)"
+          >
             <div class="handler-item-icon condition">
               <span class="iconfont icon-size icon-exclusive"></span>
             </div>
             <div class="handler-item-text">条件分支</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.PARALLEL_BRANCH_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.PARALLEL_BRANCH_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.PARALLEL_BRANCH_NODE)"
+          >
             <div class="handler-item-icon parallel">
               <span class="iconfont icon-size icon-parallel"></span>
             </div>
             <div class="handler-item-text">并行分支</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.INCLUSIVE_BRANCH_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.INCLUSIVE_BRANCH_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.INCLUSIVE_BRANCH_NODE)"
+          >
             <div class="handler-item-icon inclusive">
               <span class="iconfont icon-size icon-inclusive"></span>
             </div>
             <div class="handler-item-text">包容分支</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.DELAY_TIMER_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.DELAY_TIMER_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.DELAY_TIMER_NODE)"
+          >
             <div class="handler-item-icon delay">
               <span class="iconfont icon-size icon-delay"></span>
             </div>
             <div class="handler-item-text">延迟器</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.ROUTER_BRANCH_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.ROUTER_BRANCH_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.ROUTER_BRANCH_NODE)"
+          >
             <div class="handler-item-icon router">
               <span class="iconfont icon-size icon-router"></span>
             </div>
             <div class="handler-item-text">路由分支</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.TRIGGER_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.TRIGGER_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.TRIGGER_NODE)"
+          >
             <div class="handler-item-icon trigger">
               <span class="iconfont icon-size icon-trigger"></span>
             </div>
             <div class="handler-item-text">触发器</div>
           </div>
-          <div class="handler-item" @click="addNode(NodeType.CHILD_PROCESS_NODE)">
+          <div
+            v-if="isNodeAllowed(NodeType.CHILD_PROCESS_NODE)"
+            class="handler-item"
+            @click="addNode(NodeType.CHILD_PROCESS_NODE)"
+          >
             <div class="handler-item-icon child-process">
               <span class="iconfont icon-size icon-child-process"></span>
             </div>
@@ -111,6 +151,9 @@ const props = defineProps({
 const emits = defineEmits(['update:childNode'])
 
 const readonly = inject<Boolean>('readonly') // 是否只读
+const allowedNodeTypes = inject<Ref<number[]>>('allowedNodeTypes', ref([]))
+const isNodeAllowed = (type: NodeType) =>
+  allowedNodeTypes.value.length === 0 || allowedNodeTypes.value.includes(type)
 
 const addNode = (type: number) => {
   popoverShow.value = false

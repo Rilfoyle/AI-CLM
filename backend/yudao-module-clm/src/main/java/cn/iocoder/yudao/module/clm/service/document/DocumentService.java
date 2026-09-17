@@ -52,6 +52,15 @@ public interface DocumentService {
                                 Map<String, Object> extraAuditDetail);
 
     /**
+     * 创建文件版本，并显式决定是否推进 document / contract 当前指针。
+     * late callback 使用 {@code advanceCurrent=false}，版本仍保留但不会覆盖当前工作基线。
+     */
+    Long createVersionFromBytes(Long contractId, Long documentId, Long parentVersionId,
+                                String fileName, String mimeType, byte[] content,
+                                ClmDocumentSourceTypeEnum sourceType, String remark, Long actorUserId,
+                                Map<String, Object> extraAuditDetail, boolean advanceCurrent);
+
+    /**
      * 获得合同的文档列表（含版本列表，按版本号降序）；要求合同可见
      */
     List<DocumentRespVO> getDocumentList(Long contractId);

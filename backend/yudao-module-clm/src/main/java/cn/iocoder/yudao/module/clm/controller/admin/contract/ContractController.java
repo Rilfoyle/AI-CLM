@@ -79,12 +79,29 @@ public class ContractController {
         return success(true);
     }
 
+    @PutMapping("/restore-draft")
+    @Operation(summary = "从回收站恢复草稿")
+    @Parameter(name = "id", description = "合同编号", required = true)
+    @PreAuthorize("@ss.hasPermission('clm:contract:restore')")
+    public CommonResult<Boolean> restoreDraft(@RequestParam("id") Long id) {
+        contractService.restoreDraft(id);
+        return success(true);
+    }
+
     @GetMapping("/get")
     @Operation(summary = "获得合同详情")
     @Parameter(name = "id", description = "编号", required = true)
     @PreAuthorize("@ss.hasPermission('clm:contract:query')")
     public CommonResult<ContractRespVO> getContract(@RequestParam("id") Long id) {
         return success(contractService.getContractDetail(id));
+    }
+
+    @GetMapping("/deleted-get")
+    @Operation(summary = "获得回收站草稿详情（仅原负责人）")
+    @Parameter(name = "id", description = "编号", required = true)
+    @PreAuthorize("@ss.hasPermission('clm:contract:query')")
+    public CommonResult<ContractRespVO> getDeletedContract(@RequestParam("id") Long id) {
+        return success(contractService.getDeletedContractDetail(id));
     }
 
     @GetMapping("/page")
@@ -97,7 +114,7 @@ public class ContractController {
     @PostMapping("/submit")
     @Operation(summary = "提交审批")
     @PreAuthorize("@ss.hasPermission('clm:contract:submit')")
-    public CommonResult<Long> submitContract(@Valid @RequestBody ContractSubmitReqVO reqVO) {
+    public CommonResult<ContractSubmitRespVO> submitContract(@Valid @RequestBody ContractSubmitReqVO reqVO) {
         return success(contractWorkflowService.submit(reqVO));
     }
 

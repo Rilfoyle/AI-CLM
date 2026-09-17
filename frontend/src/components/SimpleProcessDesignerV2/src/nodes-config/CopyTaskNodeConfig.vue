@@ -175,7 +175,10 @@
               </el-select>
             </el-form-item>
             <el-form-item
-              v-if="configForm.candidateStrategy === CandidateStrategy.EXPRESSION"
+              v-if="
+                configForm.candidateStrategy === CandidateStrategy.EXPRESSION &&
+                isCandidateStrategyAllowed(CandidateStrategy.EXPRESSION)
+              "
               label="流程表达式"
               prop="expression"
             >
@@ -189,7 +192,11 @@
           </el-form>
         </div>
       </el-tab-pane>
-      <el-tab-pane label="表单字段权限" name="fields" v-if="formType === 10">
+      <el-tab-pane
+        label="表单字段权限"
+        name="fields"
+        v-if="allowFieldPermissionSetting && formType === 10"
+      >
         <div class="field-setting-pane">
           <div class="field-setting-desc">字段权限</div>
           <div class="field-permit-title">
@@ -299,6 +306,11 @@ const currentNode = useWatchNode(props)
 const { nodeName, showInput, clickIcon, blurEvent } = useNodeName(NodeType.COPY_TASK_NODE)
 // 激活的 Tab 标签页
 const activeTabName = ref('user')
+const allowedCandidateStrategies = inject<Ref<number[]>>('allowedCandidateStrategies', ref([]))
+const allowFieldPermissionSetting = inject<Ref<boolean>>('allowFieldPermissionSetting', ref(true))
+const isCandidateStrategyAllowed = (strategy: number) =>
+  allowedCandidateStrategies.value.length === 0 ||
+  allowedCandidateStrategies.value.includes(strategy)
 // 表单字段权限配置
 const { formType, fieldsPermissionConfig, formFieldOptions, getNodeConfigFormFields } =
   useFormFieldsPermission(FieldPermissionType.READ)
@@ -339,7 +351,11 @@ const {
 const configForm = tempConfigForm as Ref<CopyTaskFormType>
 // 抄送人策略， 去掉发起人自选 和 发起人自己
 const copyUserStrategies = computed(() => {
-  return CANDIDATE_STRATEGY.filter((item) => item.value !== CandidateStrategy.START_USER)
+  return CANDIDATE_STRATEGY.filter(
+    (item) =>
+      item.value !== CandidateStrategy.START_USER &&
+      isCandidateStrategyAllowed(item.value as number)
+  )
 })
 // 改变抄送人设置策略
 const changeCandidateStrategy = () => {
@@ -363,7 +379,11 @@ const saveConfig = async () => {
   currentNode.value.candidateParam = handleCandidateParam()
   currentNode.value.candidateStrategy = configForm.value.candidateStrategy
   currentNode.value.showText = showText
-  currentNode.value.fieldsPermission = fieldsPermissionConfig.value
+  if (allowFieldPermissionSetting.value) {
+    currentNode.value.fieldsPermission = fieldsPermissionConfig.value
+  } else {
+    delete currentNode.value.fieldsPermission
+  }
   settingVisible.value = false
   return true
 }
@@ -371,10 +391,15 @@ const saveConfig = async () => {
 const showCopyTaskNodeConfig = (node: SimpleFlowNode) => {
   nodeName.value = node.name
   // 抄送人设置
-  configForm.value.candidateStrategy = node.candidateStrategy!
-  parseCandidateParam(node.candidateStrategy!, node?.candidateParam)
+  if (node.candidateStrategy && isCandidateStrategyAllowed(node.candidateStrategy)) {
+    configForm.value.candidateStrategy = node.candidateStrategy
+    parseCandidateParam(node.candidateStrategy, node?.candidateParam)
+  } else {
+    configForm.value.candidateStrategy = undefined as unknown as CandidateStrategy
+    configForm.value.expression = ''
+  }
   // 表单字段权限
-  getNodeConfigFormFields(node.fieldsPermission)
+  if (allowFieldPermissionSetting.value) getNodeConfigFormFields(node.fieldsPermission)
 }
 
 /** 批量更新权限 */

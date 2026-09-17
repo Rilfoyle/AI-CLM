@@ -27,6 +27,16 @@
       <el-form-item label="名称" prop="name">
         <el-input v-model="formData.name" placeholder="请输入企业名称或个人姓名" />
       </el-form-item>
+      <el-form-item v-if="formData.internalFlag" label="我方主体简称" prop="shortName">
+        <el-input
+          v-model="formData.shortName"
+          maxlength="64"
+          placeholder="必填，将作为合同编号中的主体简称"
+        />
+        <div class="text-12px text-[var(--el-text-color-secondary)]">
+          已发布编码规则会直接使用该简称；请使用稳定且唯一的内部简称。
+        </div>
+      </el-form-item>
       <el-form-item label="统一社会信用代码" prop="unifiedCreditCode">
         <el-input
           v-model="formData.unifiedCreditCode"
@@ -84,6 +94,7 @@ const formData = ref<PartyApi.PartyVO>({
   id: undefined,
   partyType: PARTY_TYPE_COMPANY,
   name: '',
+  shortName: '',
   unifiedCreditCode: '',
   internalFlag: false,
   contactName: '',
@@ -96,6 +107,18 @@ const formRules = reactive({
   internalFlag: [{ required: true, message: '主体归属不能为空', trigger: 'change' }],
   partyType: [{ required: true, message: '签约方类型不能为空', trigger: 'change' }],
   name: [{ required: true, message: '名称不能为空', trigger: 'blur' }],
+  shortName: [
+    {
+      validator: (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+        if (formData.value.internalFlag && !value?.trim()) {
+          callback(new Error('我方主体简称不能为空'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
+  ],
   status: [{ required: true, message: '状态不能为空', trigger: 'change' }]
 })
 const formRef = ref() // 表单 Ref
@@ -150,6 +173,7 @@ const resetForm = () => {
     id: undefined,
     partyType: PARTY_TYPE_COMPANY,
     name: '',
+    shortName: '',
     unifiedCreditCode: '',
     internalFlag: false,
     contactName: '',

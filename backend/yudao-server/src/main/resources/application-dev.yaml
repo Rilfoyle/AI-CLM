@@ -47,29 +47,28 @@ spring:
       primary: master
       datasource:
         master:
-          url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true # MySQL Connector/J 8.X 连接的示例
-          username: root
-          password: 123456
-        slave: # 模拟从库，可根据自己需要修改 # 模拟从库，可根据自己需要修改
-          lazy: true # 开启懒加载，保证启动速度
-          url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true # MySQL Connector/J 8.X 连接的示例
-          username: root
-          password: 123456
+          url: ${CLM_DB_URL:jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true}
+          username: ${CLM_DB_USERNAME:root}
+          password: ${CLM_DB_PASSWORD:}
+        slave:
+          lazy: true
+          url: ${CLM_DB_URL:jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true}
+          username: ${CLM_DB_USERNAME:root}
+          password: ${CLM_DB_PASSWORD:}
 
   # Redis 配置。Redisson 默认的配置足够使用，一般不需要进行调优
   data:
     redis:
-      host: 400-infra.server.iocoder.cn # 地址
-      port: 6379 # 端口
-      database: 1 # 数据库索引
-#    password: 123456 # 密码，建议生产环境开启
+      host: ${CLM_REDIS_HOST:127.0.0.1}
+      port: ${CLM_REDIS_PORT:6379}
+      database: 0
 
 --- #################### 定时任务相关配置 ####################
 
 # Quartz 配置项，对应 QuartzProperties 配置类
 spring:
   quartz:
-    auto-startup: true # 测试环境，需要开启 Job
+    auto-startup: false
     scheduler-name: schedulerName # Scheduler 名字。默认为 schedulerName
     job-store-type: jdbc # Job 存储器类型。默认为 memory 表示内存，可选 jdbc 使用数据库。
     wait-for-jobs-to-complete-on-shutdown: true # 应用关闭时，是否等待定时任务执行完成。默认为 false ，建议设置为 true
@@ -148,47 +147,48 @@ logging:
   file:
     name: ${user.home}/logs/${spring.application.name}.log # 日志文件名，全路径
 
---- #################### 微信公众号相关配置 ####################
-wx: # 参见 https://github.com/Wechat-Group/WxJava/blob/develop/spring-boot-starters/wx-java-mp-spring-boot-starter/README.md 文档
+--- #################### 可选微信集成配置 ####################
+wx:
   mp:
-    # 公众号配置(必填)
-    app-id: wx041349c6f39b268b
-    secret: 5abee519483bc9f8cb37ce280e814bd0
+    app-id: ${TURIX_WX_MP_APP_ID:not-configured}
+    secret: ${TURIX_WX_MP_SECRET:not-configured}
     # 存储配置，解决 AccessToken 的跨节点的共享
     config-storage:
       type: RedisTemplate # 采用 RedisTemplate 操作 Redis，会自动从 Spring 中获取
       key-prefix: wx # Redis Key 的前缀
       http-client-type: HttpComponents # 采用 HttpComponents（HttpClient 5）请求微信公众号平台
-  miniapp: # 小程序配置（必填），参见 https://github.com/Wechat-Group/WxJava/blob/develop/spring-boot-starters/wx-java-miniapp-spring-boot-starter/README.md 文档
-    appid: wx63c280fe3248a3e7
-    secret: 6f270509224a7ae1296bbf1c8cb97aed
+  miniapp:
+    appid: ${TURIX_WX_MINIAPP_APP_ID:not-configured}
+    secret: ${TURIX_WX_MINIAPP_SECRET:not-configured}
     config-storage:
       type: RedisTemplate # 采用 RedisTemplate 操作 Redis，会自动从 Spring 中获取
       key-prefix: wa # Redis Key 的前缀
       http-client-type: HttpComponents # 采用 HttpComponents（HttpClient 5）请求微信小程序平台
 
---- #################### 芋道相关配置 ####################
+--- #################### TuriX 平台兼容配置 ####################
 
-# 芋道配置项，设置当前项目所有自定义的配置
+# 保留 yudao 配置前缀以兼容底层框架。
 yudao:
   pay:
-    order-notify-url: http://yunai.natapp1.cc/admin-api/pay/notify/order # 支付渠道的【支付】回调地址
-    refund-notify-url: http://yunai.natapp1.cc/admin-api/pay/notify/refund # 支付渠道的【退款】回调地址
-    transfer-notify-url: https://yunai.natapp1.cc/admin-api/pay/notify/transfer # 支付渠道的【转账】回调地址
-  demo: false # 开启演示模式
-  tencent-lbs-key: TVDBZ-TDILD-4ON4B-PFDZA-RNLKH-VVF6E # QQ 地图的密钥 https://lbs.qq.com/service/staticV2/staticGuide/staticDoc
+    order-notify-url: http://127.0.0.1:48080/admin-api/pay/notify/order
+    refund-notify-url: http://127.0.0.1:48080/admin-api/pay/notify/refund
+    transfer-notify-url: http://127.0.0.1:48080/admin-api/pay/notify/transfer
+  demo: false
+  security:
+    mock-enable: false
+  tencent-lbs-key: ${TURIX_TENCENT_LBS_KEY:not-configured}
 
 justauth:
-  enabled: true
+  enabled: false
   type:
     DINGTALK: # 钉钉
-      client-id: dingvrnreaje3yqvzhxg
-      client-secret: i8E6iZyDvZj51JIb0tYsYfVQYOks9Cq1lgryEjFRqC79P3iJcrxEwT6Qk2QvLrLI
+      client-id: ${TURIX_DINGTALK_CLIENT_ID:not-configured}
+      client-secret: ${TURIX_DINGTALK_CLIENT_SECRET:not-configured}
       ignore-check-redirect-uri: true
     WECHAT_ENTERPRISE: # 企业微信
-      client-id: wwd411c69a39ad2e54
-      client-secret: 1wTb7hYxnpT2TUbIeHGXGo7T0odav1ic10mLdyyATOw
-      agent-id: 1000004
+      client-id: ${TURIX_WECHAT_ENTERPRISE_CLIENT_ID:not-configured}
+      client-secret: ${TURIX_WECHAT_ENTERPRISE_CLIENT_SECRET:not-configured}
+      agent-id: ${TURIX_WECHAT_ENTERPRISE_AGENT_ID:not-configured}
       ignore-check-redirect-uri: true
     # noinspection SpringBootApplicationYaml
     WECHAT_MINI_PROGRAM: # 微信小程序
@@ -201,9 +201,9 @@ justauth:
       client-secret: ${wx.mp.secret}
       ignore-check-redirect-uri: true
     ALIPAY: # 支付宝小程序
-      client-id: xx
-      client-secret: xx
-      alipay-public-key: xx
+      client-id: ${TURIX_ALIPAY_CLIENT_ID:not-configured}
+      client-secret: ${TURIX_ALIPAY_CLIENT_SECRET:not-configured}
+      alipay-public-key: ${TURIX_ALIPAY_PUBLIC_KEY:not-configured}
       ignore-check-redirect-uri: true
       ignore-check-state: true
   cache:

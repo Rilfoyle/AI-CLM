@@ -18,6 +18,9 @@ public class PartyRespVO {
     @Schema(description = "名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "芋道科技")
     private String name;
 
+    @Schema(description = "我方主体简称")
+    private String shortName;
+
     @Schema(description = "统一社会信用代码 / 证件号")
     private String unifiedCreditCode;
 

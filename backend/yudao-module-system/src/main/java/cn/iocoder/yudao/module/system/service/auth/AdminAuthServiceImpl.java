@@ -1,6 +1,8 @@
 package cn.iocoder.yudao.module.system.service.auth;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
 import cn.iocoder.yudao.framework.common.util.monitor.TracerUtils;
@@ -8,6 +10,9 @@ import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.framework.common.util.servlet.ServletUtils;
 import cn.iocoder.yudao.framework.common.util.validation.ValidationUtils;
 import cn.iocoder.yudao.framework.datapermission.core.annotation.DataPermission;
+import cn.iocoder.yudao.framework.security.core.LoginUser;
+import cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils;
+import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
 import cn.iocoder.yudao.module.system.api.logger.dto.LoginLogCreateReqDTO;
 import cn.iocoder.yudao.module.system.api.sms.SmsCodeApi;
 import cn.iocoder.yudao.module.system.api.sms.dto.code.SmsCodeUseReqDTO;
@@ -16,6 +21,8 @@ import cn.iocoder.yudao.module.system.api.social.dto.SocialUserRespDTO;
 import cn.iocoder.yudao.module.system.controller.admin.auth.vo.*;
 import cn.iocoder.yudao.module.system.convert.auth.AuthConvert;
 import cn.iocoder.yudao.module.system.dal.dataobject.oauth2.OAuth2AccessTokenDO;
+import cn.iocoder.yudao.module.system.dal.dataobject.permission.RoleDO;
+import cn.iocoder.yudao.module.system.dal.dataobject.tenant.TenantDO;
 import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
 import cn.iocoder.yudao.module.system.enums.logger.LoginLogTypeEnum;
 import cn.iocoder.yudao.module.system.enums.logger.LoginResultEnum;
@@ -24,7 +31,10 @@ import cn.iocoder.yudao.module.system.enums.sms.SmsSceneEnum;
 import cn.iocoder.yudao.module.system.service.logger.LoginLogService;
 import cn.iocoder.yudao.module.system.service.member.MemberService;
 import cn.iocoder.yudao.module.system.service.oauth2.OAuth2TokenService;
+import cn.iocoder.yudao.module.system.service.permission.PermissionService;
+import cn.iocoder.yudao.module.system.service.permission.RoleService;
 import cn.iocoder.yudao.module.system.service.social.SocialUserService;
+import cn.iocoder.yudao.module.system.service.tenant.TenantService;
 import cn.iocoder.yudao.module.system.service.user.AdminUserService;
 import com.anji.captcha.model.common.ResponseModel;
 import com.anji.captcha.model.vo.CaptchaVO;
@@ -35,10 +45,14 @@ import jakarta.validation.Validator;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.servlet.ServletUtils.getClientIP;
@@ -52,6 +66,15 @@ import static cn.iocoder.yudao.module.system.enums.ErrorCodeConstants.*;
 @Service
 @Slf4j
 public class AdminAuthServiceImpl implements AdminAuthService {
+
+    public static final String DEMO_ROLE_SWITCH_SCOPE = "turix:demo-role-switch";
+    private static final String DEMO_TENANT_NAME = "TuriX";
+    private static final String DEMO_SYSTEM_ADMIN_ROLE = "clm_system_admin";
+    private static final Map<String, DemoAccount> DEMO_ACCOUNTS = Map.of(
+            "clm_business", new DemoAccount(200001L, "business", "clm_business"),
+            "clm_legal", new DemoAccount(200002L, "legal", "clm_legal"),
+            "clm_contract_admin", new DemoAccount(200003L, "contractadmin", "clm_contract_admin"),
+            DEMO_SYSTEM_ADMIN_ROLE, new DemoAccount(200004L, "systemadmin", DEMO_SYSTEM_ADMIN_ROLE));
 
     @Resource
     private AdminUserService userService;
@@ -69,6 +92,12 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     private CaptchaService captchaService;
     @Resource
     private SmsCodeApi smsCodeApi;
+    @Resource
+    private PermissionService permissionService;
+    @Resource
+    private RoleService roleService;
+    @Resource
+    private TenantService tenantService;
 
     /**
      * 验证码的开关，默认为 true
@@ -114,6 +143,83 @@ public class AdminAuthServiceImpl implements AdminAuthService {
         }
         // 创建 Token 令牌，记录登录日志
         return createTokenAfterLoginSuccess(user.getId(), reqVO.getUsername(), LoginLogTypeEnum.LOGIN_USERNAME);
+    }
+
+    @Override
+    @DataPermission(enable = false)
+    @Transactional(rollbackFor = Exception.class)
+    public AuthLoginRespVO switchDemoRole(AuthDemoRoleSwitchReqVO reqVO, String currentToken) {
+        if (StrUtil.isBlank(currentToken)) {
+            throw demoRoleSwitchDenied();
+        }
+        Long tenantId = TenantContextHolder.getRequiredTenantId();
+        TenantDO tenant = tenantService.getTenant(tenantId);
+        if (tenant == null || !DEMO_TENANT_NAME.equals(tenant.getName())
+                || !CommonStatusEnum.isEnable(tenant.getStatus())) {
+            throw new AccessDeniedException("本地演示身份切换仅支持 TuriX 租户");
+        }
+
+        LoginUser actor = SecurityFrameworkUtils.getLoginUser();
+        DemoAccount actorAccount = validateDemoActor(actor, tenantId);
+        DemoAccount targetAccount = DEMO_ACCOUNTS.get(reqVO.getRoleCode());
+        if (targetAccount == null) { // 同时拒绝 break-glass admin 和任意非产品角色
+            throw demoRoleSwitchDenied();
+        }
+        AdminUserDO targetUser = validateDemoAccount(targetAccount, tenantId, true);
+
+        AuthLoginRespVO result = createTokenAfterLoginSuccess(targetUser.getId(), targetUser.getUsername(),
+                LoginLogTypeEnum.LOGIN_USERNAME, List.of(DEMO_ROLE_SWITCH_SCOPE));
+        oauth2TokenService.removeAccessToken(currentToken);
+        log.info("[switchDemoRole][actor({}/{}) switched to target({}/{}) role({})]",
+                actorAccount.userId(), actorAccount.username(), targetAccount.userId(), targetAccount.username(),
+                targetAccount.roleCode());
+        return result;
+    }
+
+    private DemoAccount validateDemoActor(LoginUser actor, Long tenantId) {
+        if (actor == null || !Objects.equals(tenantId, actor.getTenantId())) {
+            throw demoRoleSwitchDenied();
+        }
+        DemoAccount actorAccount = DEMO_ACCOUNTS.values().stream()
+                .filter(account -> Objects.equals(account.userId(), actor.getId()))
+                .findFirst().orElseThrow(AdminAuthServiceImpl::demoRoleSwitchDenied);
+        boolean continuedDemoSession = CollUtil.contains(actor.getScopes(), DEMO_ROLE_SWITCH_SCOPE);
+        if (!continuedDemoSession && !DEMO_SYSTEM_ADMIN_ROLE.equals(actorAccount.roleCode())) {
+            throw demoRoleSwitchDenied();
+        }
+        validateDemoAccount(actorAccount, tenantId, false);
+        return actorAccount;
+    }
+
+    private AdminUserDO validateDemoAccount(DemoAccount expected, Long tenantId, boolean queryByUsername) {
+        AdminUserDO user = queryByUsername
+                ? userService.getUserByUsername(expected.username()) : userService.getUser(expected.userId());
+        if (user == null || !Objects.equals(expected.userId(), user.getId())
+                || !Objects.equals(expected.username(), user.getUsername())
+                || !Objects.equals(tenantId, user.getTenantId())
+                || !CommonStatusEnum.isEnable(user.getStatus())) {
+            throw demoRoleSwitchDenied();
+        }
+
+        Set<Long> roleIds = permissionService.getUserRoleIdListByUserId(user.getId());
+        if (CollUtil.size(roleIds) != 1) {
+            throw demoRoleSwitchDenied();
+        }
+        List<RoleDO> roles = roleService.getRoleList(roleIds);
+        if (CollUtil.size(roles) != 1) {
+            throw demoRoleSwitchDenied();
+        }
+        RoleDO role = roles.get(0);
+        if (!Objects.equals(expected.roleCode(), role.getCode())
+                || !Objects.equals(tenantId, role.getTenantId())
+                || !CommonStatusEnum.isEnable(role.getStatus())) {
+            throw demoRoleSwitchDenied();
+        }
+        return user;
+    }
+
+    private static AccessDeniedException demoRoleSwitchDenied() {
+        return new AccessDeniedException("本地演示身份不可用");
     }
 
     @Override
@@ -210,11 +316,16 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     }
 
     private AuthLoginRespVO createTokenAfterLoginSuccess(Long userId, String username, LoginLogTypeEnum logType) {
+        return createTokenAfterLoginSuccess(userId, username, logType, null);
+    }
+
+    private AuthLoginRespVO createTokenAfterLoginSuccess(Long userId, String username, LoginLogTypeEnum logType,
+                                                          List<String> scopes) {
         // 插入登陆日志
         createLoginLog(userId, username, logType, LoginResultEnum.SUCCESS);
         // 创建访问令牌
         OAuth2AccessTokenDO accessTokenDO = oauth2TokenService.createAccessToken(userId, getUserType().getValue(),
-                OAuth2ClientConstants.CLIENT_ID_DEFAULT, null);
+                OAuth2ClientConstants.CLIENT_ID_DEFAULT, scopes);
         // 构建返回结果
         return BeanUtils.toBean(accessTokenDO, AuthLoginRespVO.class);
     }
@@ -302,5 +413,8 @@ public class AdminAuthServiceImpl implements AdminAuthService {
         );
 
         userService.updateUserPassword(userByMobile.getId(), reqVO.getPassword());
+    }
+
+    private record DemoAccount(Long userId, String username, String roleCode) {
     }
 }

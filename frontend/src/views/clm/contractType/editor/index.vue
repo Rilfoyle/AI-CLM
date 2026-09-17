@@ -1,7 +1,7 @@
 <template>
   <ContentWrap class="!mb-10px" :body-style="{ padding: '10px 16px' }">
-    <el-form ref="formRef" :model="formData" :rules="formRules" :inline="true" class="-mb-15px">
-      <el-form-item label="合同类型">
+    <el-form ref="formRef" :model="formData" :inline="true" class="-mb-15px">
+      <el-form-item label="合同分类">
         <span class="font-bold">{{ typeName }}</span>
       </el-form-item>
       <el-form-item label="版本号">
@@ -14,24 +14,6 @@
           :type="DICT_TYPE.CLM_TYPE_VERSION_STATUS"
           :value="version.status"
         />
-      </el-form-item>
-      <el-form-item label="审批流程" prop="processDefinitionKey">
-        <el-select
-          v-model="formData.processDefinitionKey"
-          placeholder="请选择或输入流程标识"
-          filterable
-          allow-create
-          default-first-option
-          :disabled="readonly"
-          class="!w-280px"
-        >
-          <el-option
-            v-for="item in processDefinitionOptions"
-            :key="item.key"
-            :label="item.name + ' (' + item.key + ')'"
-            :value="item.key"
-          />
-        </el-select>
       </el-form-item>
       <el-form-item label="说明" prop="remark">
         <el-input
@@ -63,6 +45,18 @@
         <el-button @click="close"><Icon icon="ep:back" class="mr-5px" /> 返回</el-button>
       </el-form-item>
     </el-form>
+    <el-alert class="mt-10px" type="info" :closable="false" show-icon>
+      <template #title>
+        此页只维护合同页面字段；审批节点在“流程定义”中设计，合同选用哪套流程由“业务单据流程配置”统一决定。
+        <el-button
+          link
+          type="primary"
+          @click="push('/clm/approval-management/workflow-settings/process')"
+        >
+          去配置流程定义
+        </el-button>
+      </template>
+    </el-alert>
   </ContentWrap>
 
   <ContentWrap :body-style="{ padding: '0px' }" class="!mb-0">
@@ -78,7 +72,6 @@
 <script lang="ts" setup>
 import { DICT_TYPE } from '@/utils/dict'
 import * as ContractTypeApi from '@/api/clm/contractType'
-import * as DefinitionApi from '@/api/bpm/definition'
 import FcDesigner from '@form-create/designer'
 import { decodeFields, encodeConf, encodeFields, setConfAndFields } from '@/utils/formCreate'
 import { useTagsViewStore } from '@/store/modules/tagsView'
@@ -132,16 +125,11 @@ useFormCreateDesigner(designer) // 表单设计器增强
 const loading = ref(false) // 加载中
 const saving = ref(false) // 保存中
 const version = ref<ContractTypeApi.ContractTypeVersionVO>({ processDefinitionKey: '' }) // 当前版本
-const typeName = ref('') // 合同类型名称
+const typeName = ref('') // 合同分类名称
 const formRef = ref() // 顶部表单 Ref
 const formData = ref({
-  processDefinitionKey: '',
   remark: ''
 })
-const formRules = reactive({
-  processDefinitionKey: [{ required: true, message: '审批流程标识不能为空', trigger: 'change' }]
-})
-const processDefinitionOptions = ref<{ key: string; name: string }[]>([]) // 流程定义选项
 
 /** 保存（可选：保存后发布） */
 const handleSave = async (publish: boolean) => {
@@ -161,7 +149,8 @@ const handleSave = async (publish: boolean) => {
       id: version.value.id,
       formConf: encodeConf(designer), // 表单配置
       formFields: encodeFields(designer), // 表单字段
-      processDefinitionKey: formData.value.processDefinitionKey,
+      // 兼容历史数据结构；流程定义的权威选择已经迁移到业务单据流程配置。
+      processDefinitionKey: version.value.processDefinitionKey || 'clm_contract_approval_v1',
       remark: formData.value.remark
     })
     if (!publish) {
@@ -176,19 +165,10 @@ const handleSave = async (publish: boolean) => {
   }
 }
 
-/** 返回合同类型列表 */
+/** 返回页面布局配置列表 */
 const close = () => {
   delView(unref(currentRoute))
-  push('/clm/contract-type')
-}
-
-/** 加载流程定义选项 */
-const getProcessDefinitionOptions = async () => {
-  const data = await DefinitionApi.getProcessDefinitionList({ suspensionState: 1 })
-  processDefinitionOptions.value = (data || []).map((item: any) => ({
-    key: item.key,
-    name: item.name
-  }))
+  push('/clm/base-settings/page-layout')
 }
 
 /** 初始化 **/
@@ -201,13 +181,11 @@ onMounted(async () => {
   }
   loading.value = true
   try {
-    await getProcessDefinitionOptions()
     const data = await ContractTypeApi.getContractTypeVersion(id)
     version.value = data
     if (data.status === VERSION_STATUS_PUBLISHED) {
       readonly.value = true
     }
-    formData.value.processDefinitionKey = data.processDefinitionKey || ''
     formData.value.remark = data.remark || ''
     if (data.typeId) {
       const type = await ContractTypeApi.getContractType(data.typeId)

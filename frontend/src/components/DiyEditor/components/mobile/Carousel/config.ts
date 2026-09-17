@@ -40,10 +40,7 @@ export const component = {
     autoplay: false,
     interval: 3,
     height: 174,
-    items: [
-      { type: 'img', imgUrl: 'https://static.iocoder.cn/mall/banner-01.jpg', videoUrl: '' },
-      { type: 'img', imgUrl: 'https://static.iocoder.cn/mall/banner-02.jpg', videoUrl: '' }
-    ] as CarouselItemProperty[],
+    items: [] as CarouselItemProperty[],
     style: {
       bgType: 'color',
       bgColor: '#fff',

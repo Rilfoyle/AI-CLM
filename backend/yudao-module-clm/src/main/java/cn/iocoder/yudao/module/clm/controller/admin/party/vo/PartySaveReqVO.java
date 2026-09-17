@@ -25,6 +25,10 @@ public class PartySaveReqVO {
     @Size(max = 255, message = "名称长度不能超过 255")
     private String name;
 
+    @Schema(description = "我方主体简称，供合同编号使用", example = "灵犀科技")
+    @Size(max = 64, message = "主体简称长度不能超过 64")
+    private String shortName;
+
     @Schema(description = "统一社会信用代码 / 证件号", example = "91330100MA2XXXXXXX")
     private String unifiedCreditCode;
 

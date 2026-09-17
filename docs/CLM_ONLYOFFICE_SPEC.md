@@ -1,7 +1,7 @@
 # CLM POC 在线编辑（ONLYOFFICE）实施规格 — 第二阶段 Gate
 
 > 前提：基础闭环（上传/版本/权限/审批）已通过。本阶段只接 ONLYOFFICE Document Server；不做多人分支合并；"版本比较"按 README 13.2 明确降级为**并排查看 + 历史下载**，不包装成真正的 compare。
-> 本机无 Docker，Document Server 未部署：代码按本规格实现并用"回调模拟测试"验证后端链路；真实 Document Server 验收见 §6。
+> 上一交付会话没有 Docker，Document Server 当时未部署：代码先用"回调模拟测试"验证后端链路；真实 Document Server 验收见 §6。
 
 ## 1. 配置（`yudao-server/src/main/resources/application-clm-local.yaml` 追加；密钥来自环境变量）
 
@@ -59,8 +59,8 @@ HMAC-SHA256 签名的紧凑令牌（自实现，避免额外依赖；格式 `bas
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/clm/online-edit/file?token=` | `verify(token,"file")` → `TenantUtils.execute(tenantId, ...)` 读取版本字节流；`Content-Disposition: attachment`。**不写下载审计**（属于编辑会话的内部拉取），但记录 debug 日志。 |
-| POST | `/clm/online-edit/callback?token=` | `verify(token,"callback")`；若 `jwt-secret` 非空，校验 body `token` 字段或 `Authorization` 头的 JWT（`JWTUtil.verify`），失败返回 `{"error":1}`。解析 body：`status`、`url`、`key`、`users`、`forcesavetype`。`status ∈ {2,6}` 时：用 `HttpUtil.downloadBytes(url)`（hutool）拉取新文件 → `sha256` → **幂等**：若该文档当前版本的 `checksumSha256 == sha256` 则不新建版本（返回 error 0）；否则新建版本（`sourceType=ONLINE_EDIT`、`parentVersionId = token.v`、`remark = "ONLYOFFICE 保存 (status=…)"`、creator = token.u 对应用户），更新 `document.currentVersionId`，MAIN 时更新 `contract.currentDocumentVersionId`；审计 `ONLINE_EDIT_SAVE`（actorUserId=token.u）。若合同此时 `approvalStatus == RUNNING` 或目标父版本已冻结且文档当前版本 != 父版本… 仍然创建新版本（审批中禁止的是"打开编辑"，回调是对已开启会话的收尾，不能丢数据），但审计 detail 记 `lateSave=true`。`status` 其它值只记日志。**始终**返回 `{"error":0}`（除 token/JWT 失败）。 |
+| GET | `/clm/online-edit/file?token=` | `verify(token,"file")` → `TenantUtils.execute(tenantId, ...)`，重新读取合同并执行 `assertCanView(contract, token.u)` 后读取版本字节流；因此参与人撤权后，尚未过期的 file token 也立即失效。`Content-Disposition: attachment`。**不写下载审计**（属于编辑会话的内部拉取），但记录 debug 日志。 |
+| POST | `/clm/online-edit/callback?token=` | `verify(token,"callback")`；若 `jwt-secret` 非空，校验 body `token` 字段或 `Authorization` 头的 JWT 签名（不臆造尚未用真实 DS 固化的 claims 结构），失败返回 `{"error":1}`。回调 `key` 必须严格等于 token 目标版本的 `clm-v{versionId}-{sha256前12位}`。`status ∈ {2,6}` 时，只允许从与 `document-server-url` **同 scheme、host、有效端口**的 HTTP(S) URL 拉取，拒绝 userinfo、fragment、跨源 URL 和所有 3xx；流式读取上限 50 MiB。随后计算原始字节 `sha256` → **幂等**：先比较当前版本的原始 SHA；若 forcesave 与 close 重新封装 OOXML 导致 ZIP SHA 不同，则仅对同一父版本生成的 `.docx/.xlsx/.pptx` 比较全部解压条目的“名称 + 长度 + 内容 SHA”。该比较只忽略 ZIP 时间戳、压缩方式和条目顺序，不归一化 XML；重复条目、路径穿越、损坏包、超过 10,000 条目或 200 MiB 解压量时保守地视为不同。真实内容不同才新建版本（`sourceType=ONLINE_EDIT`、`parentVersionId = token.v`、`remark = "ONLYOFFICE 保存 (status=…)"`、creator = token.u 对应用户），更新 `document.currentVersionId`，MAIN 时更新 `contract.currentDocumentVersionId`；审计 `ONLINE_EDIT_SAVE`（actorUserId=token.u）。若合同此时 `approvalStatus == RUNNING` 或目标父版本已冻结/已非当前版本，仍然创建新版本（审批中禁止的是"打开编辑"，回调是对已开启会话的收尾，不能丢数据），但审计 detail 记 `lateSave=true`。`status` 其它值不拉文件，但仍校验 token/JWT/key。 |
 
 两个开放接口必须经 `SecurityConfiguration` 的 `AuthorizeRequestsCustomizer` 放行（`buildAdminApi("/clm/online-edit/file")`、`/callback`）——同时保留 `@PermitAll` 注解。
 
@@ -83,21 +83,36 @@ HMAC-SHA256 签名的紧凑令牌（自实现，避免额外依赖；格式 `bas
 ## 5. 测试
 
 - 单测 `OnlyOfficeTokenServiceTest`：签发/校验/过期/篡改。
-- 集成验证脚本 `scripts/e2e-onlyoffice-callback.ps1`（无 Document Server 也可跑）：登录 → 上传 v1 → `GET /config?mode=edit` 取 `callbackUrl` 与 `document.url` → 从 `document.url` 直接 GET（应得到字节，证明开放接口 + token 可用；篡改 token 应 401/错误）→ 构造回调 `{"key":..,"status":2,"url":"<document.url 但指向另一份内容：先上传 v2 再取其 file token 的 url>","users":["1"]}` 并带 HS256 JWT → 期望 `{"error":0}` 且版本列表出现 `sourceType=ONLINE_EDIT` 的新版本；再次发送同一回调 → 不新增版本（幂等）；审批中时 `GET /config?mode=edit` 应被拒绝。
+- 单测 `OnlineEditServiceImplTest`：callback key 不匹配、SSRF scheme/host/port/userinfo、3xx、声明/分块超大响应、file token 使用时撤权、OOXML 容器元数据去重、真实条目变化、重复条目与路径穿越拒绝。回调 HTTP 对完整响应体使用 60 秒可取消 deadline，不能在收到响应头后无限慢速读取。
+- 回调模拟测试若没有真实 Document Server，必须在 configured `document-server-url` 同源启动一个只提供测试 DOCX 的本地 HTTP stub；不能再把 `:48080` 后端 file URL 当作 callback `url`。流程仍为：登录 → 上传 → 取 config/file token → 从 file URL 验证开放接口 → 从 DS-origin stub 拉取另一份内容 → 签名 callback → 验证新版本/幂等/审批锁定。
 
-## 6. 真实 Document Server 验收（待有 Docker 的机器执行）
+## 6. 真实 Document Server 8.2 Gate
+
+当前 Gate 严格采用交接文档指定的 Community 8.2，并锁定已验证含 `linux/arm64` 的多架构索引 digest；9.4 仅作为后续升级候选，不与本轮 Gate 混跑。
 
 `infra/compose.onlyoffice.yaml`：
 ```yaml
 services:
   onlyoffice:
-    image: onlyoffice/documentserver:8.2   # 固定后记录 digest
+    image: onlyoffice/documentserver:8.2@sha256:fb1c76177e578918f0d7ad51eda5006d728b9f2f071f93d18054c1f91edec78b
     container_name: clm-onlyoffice
+    restart: unless-stopped
     environment:
       JWT_ENABLED: "true"
       JWT_SECRET: ${CLM_ONLYOFFICE_JWT_SECRET:?set in infra/.env}
       JWT_HEADER: Authorization
-    ports: ["8090:80"]
+    ports: ["127.0.0.1:8090:80"]
     extra_hosts: ["host.docker.internal:host-gateway"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/healthcheck || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
 ```
-验收项：真实 DOCX 打开（中文字体/批注/修订/页眉页脚/表格）、保存回调生成新版本、并发两人编辑同一版本、历史版本只读打开、无权/过期/冻结/审批中均被拒绝。社区版 AGPLv3 义务在交付前单独确认。
+
+验收项：真实 DOCX 打开（中文字体/批注/修订/页眉页脚/表格）、保存回调生成新版本、并发两人编辑同一版本、历史版本只读打开、无权与撤权后的 file token 被拒绝、过期/篡改 token 被拒绝。冻结/审批中是**拒绝新开 edit config**；已打开会话的晚到 callback 仍接收并标记 `lateSave=true`。
+
+2026-08-26 本机 Gate 结果：Community 8.2 容器健康；真实 4 页中文 DOCX 打开并保存成功；admin 与 yudao 同时连接时编辑器显示 2 位协作者；历史 v1 只读打开；撤权前同一 file token 返回 DOCX，撤权后立即返回 `1070007000`；forcesave 创建新版本后，close 回调的 OOXML 条目内容完全相同，仅 ZIP 时间戳变化，逻辑包去重后未再生成重复版本。后端 CLM 模块最终 52 项单测全通过，两个 E2E 脚本分别 57/61 项检查全通过。
+
+`permissions.download=false` 只能关闭 ONLYOFFICE 的下载/打印 UI，不能单独构成防抓包安全边界。当前本机 Gate 已将 8090 仅绑定 loopback；正式部署还必须在反向代理/容器网络层将 `/clm/online-edit/file|callback` 限制为 Document Server 网络身份，并配置 TLS。社区版 AGPLv3 义务在交付前单独确认。

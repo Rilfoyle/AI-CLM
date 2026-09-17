@@ -109,11 +109,21 @@ export interface ContractVO {
   sourceContractNo?: string
   relationType?: 'COPY' | 'RENEWAL' | string
   currentDocumentVersionId?: number
+  currentRevisionId?: string
+  currentRevisionNo?: number
+  sourceMode?: 'TEMPLATE' | 'UPLOAD' | string
+  stageCode?: string
+  deleted?: boolean
+  deletedTime?: Date
+  startDate?: string
+  endDate?: string
   currentBindingId?: number
   createTime?: Date
   updateTime?: Date
   creator?: string
   parties?: ContractPartyVO[] | ContractPartyItemVO[]
+  counterpartyName?: string
+  counterpartyNames?: string[]
   currentDocumentVersion?: DocumentVersionVO | null
   currentBinding?: ContractBindingVO | null
   permissions?: ContractPermissionsVO
@@ -149,9 +159,24 @@ export interface AuditEventVO {
 
 /** 提交审批入参 */
 export interface ContractSubmitReqVO {
-  id: number
+  id: number | string
+  submitRequestId: string
+  baseRevisionId: string
   startUserSelectAssignees?: Record<string, number[]>
   remark?: string
+}
+
+export interface ContractSubmitRespVO {
+  approvalCaseId: string
+  processInstanceId: string
+  contractNo: string
+  submittedRevisionId: string
+}
+
+export interface CreateContractFromTemplateReqVO {
+  templateVersionId: string
+  name: string
+  ownerUserId?: string
 }
 
 /** 审批预览出参 */
@@ -173,9 +198,29 @@ export const getContract = (id: number | string) => {
   return request.get<ContractVO>({ url: '/clm/contract/get?id=' + id })
 }
 
+// 查询已删除草稿墓碑详情（服务端仅向有权恢复的草稿关系人返回）
+export const getDeletedContract = (id: number | string) => {
+  return request.get<ContractVO>({ url: '/clm/contract/deleted-get?id=' + id })
+}
+
 // 新增合同
 export const createContract = (data: ContractVO) => {
   return request.post<number>({ url: '/clm/contract/create', data })
+}
+
+export const createContractFromTemplate = (data: CreateContractFromTemplateReqVO) => {
+  return request.post<string>({ url: '/clm/contract/create-from-template', data })
+}
+
+export const createContractFromUpload = async (formData: FormData) => {
+  const response = await request.upload<{ code: number; data: string; msg: string }>({
+    url: '/clm/contract/create-from-upload',
+    data: formData
+  })
+  if (response && typeof response === 'object' && 'data' in response) {
+    return response.data
+  }
+  return response as unknown as string
 }
 
 // 修改合同
@@ -190,7 +235,11 @@ export const deleteContract = (id: number) => {
 
 // 提交审批
 export const submitContract = (data: ContractSubmitReqVO) => {
-  return request.post<number>({ url: '/clm/contract/submit', data })
+  return request.post<ContractSubmitRespVO>({ url: '/clm/contract/submit', data })
+}
+
+export const restoreContractDraft = (id: number | string) => {
+  return request.put<boolean>({ url: '/clm/contract/restore-draft', params: { id } })
 }
 
 // 审批预览（获得流程定义信息，用于审批人预测）

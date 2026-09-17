@@ -5,6 +5,7 @@ export interface PartyVO {
   id?: number
   partyType: number
   name: string
+  shortName?: string
   unifiedCreditCode?: string
   internalFlag: boolean
   contactName?: string
@@ -22,6 +23,23 @@ export interface PartySimpleVO {
   partyType: number
   internalFlag: boolean
   unifiedCreditCode?: string
+}
+
+export interface PartyDuplicateGroupVO {
+  matchType: 'UNIFIED_CREDIT_CODE' | 'NORMALIZED_NAME'
+  matchValue: string
+  recommendedTargetPartyId: number
+  parties: PartyVO[]
+}
+
+export interface PartyMergeRespVO {
+  sourcePartyId: number
+  targetPartyId: number
+  rewrittenContractCount: number
+  rewrittenLinkCount: number
+  deduplicatedLinkCount: number
+  protectedContractCount: number
+  idempotent: boolean
 }
 
 /** 签约方分页查询参数 */
@@ -60,4 +78,18 @@ export const deleteParty = (id: number) => {
 // 查询签约方精简列表（仅启用）；internalFlag 可空：true 我方主体 / false 相对方
 export const getPartySimpleList = (internalFlag?: boolean) => {
   return request.get<PartySimpleVO[]>({ url: '/clm/party/simple-list', params: { internalFlag } })
+}
+
+export const getPartyDuplicateCandidates = (params?: {
+  internalFlag?: boolean
+  partyType?: number
+}) => {
+  return request.get<PartyDuplicateGroupVO[]>({
+    url: '/clm/party/duplicate-candidates',
+    params
+  })
+}
+
+export const mergeParty = (data: { sourcePartyId: number; targetPartyId: number }) => {
+  return request.put<PartyMergeRespVO>({ url: '/clm/party/merge', data })
 }

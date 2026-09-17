@@ -9,6 +9,7 @@ import cn.iocoder.yudao.module.bpm.api.task.BpmProcessInstanceApi;
 import cn.iocoder.yudao.module.clm.access.ContractAccessService;
 import cn.iocoder.yudao.module.clm.controller.admin.contract.vo.ContractCopyReqVO;
 import cn.iocoder.yudao.module.clm.controller.admin.contract.vo.ContractPartyItemVO;
+import cn.iocoder.yudao.module.clm.controller.admin.contract.vo.ContractPageReqVO;
 import cn.iocoder.yudao.module.clm.controller.admin.contract.vo.ContractRespVO;
 import cn.iocoder.yudao.module.clm.controller.admin.contract.vo.ContractSaveReqVO;
 import cn.iocoder.yudao.module.clm.controller.admin.contracttype.vo.ContractTypeSaveReqVO;
@@ -114,6 +115,55 @@ public class ContractCopyArchiveServiceTest extends BaseDbUnitTest {
         SecurityContextHolder.clearContext();
     }
 
+    @Test
+    public void testSelectByIdForUpdate_appliesCustomDataTypeHandler() {
+        ContractDO row = new ContractDO().setTitle("锁行 JSON 映射")
+                .setTypeId(1L).setTypeVersionId(1L).setOwnerUserId(1L)
+                .setCurrency("CNY").setCustomData(Map.of("deliveryDate", "2026-09-30"));
+        contractMapper.insert(row);
+
+        ContractDO locked = contractMapper.selectByIdForUpdate(row.getId());
+
+        assertNotNull(locked.getCustomData());
+        assertEquals("2026-09-30", locked.getCustomData().get("deliveryDate"));
+    }
+
+    @Test
+    public void testContractPageAndDetailExposeSnapshotCounterparties() {
+        mockLoginUser(1L, 100L);
+        Long typeId = createContractType("PARTY", "签约方类型");
+        publishDraftVersion(typeId, "{\"field\":\"a\",\"title\":\"A\"}");
+        Long ourPartyId = insertParty("TuriX 科技有限公司");
+        Long firstCounterpartyId = insertParty("星河智能科技有限公司");
+        Long secondCounterpartyId = insertParty("远山数字服务有限公司");
+        ContractSaveReqVO createReqVO = buildCreateReqVO(typeId, "多相对方合同", null,
+                ourPartyId, firstCounterpartyId);
+        ContractPartyItemVO secondCounterparty = new ContractPartyItemVO();
+        secondCounterparty.setPartyId(secondCounterpartyId);
+        secondCounterparty.setRoleCode(ClmContractPartyRoleEnum.COUNTERPARTY.getCode());
+        secondCounterparty.setSort(2);
+        createReqVO.setParties(new ArrayList<>(createReqVO.getParties()));
+        createReqVO.getParties().add(secondCounterparty);
+        Long contractId = contractService.createContract(createReqVO);
+
+        // 台账展示合同生成时冻结的主体快照，不受后续主体主数据改名影响。
+        partyMapper.updateById(new PartyDO().setId(firstCounterpartyId).setName("改名后的主体"));
+        ContractPageReqVO pageReqVO = new ContractPageReqVO();
+        var page = contractService.getContractPage(pageReqVO);
+
+        assertEquals(1L, page.getTotal());
+        ContractRespVO row = page.getList().get(0);
+        assertEquals(contractId, row.getId());
+        assertEquals("星河智能科技有限公司", row.getCounterpartyName());
+        assertEquals(List.of("星河智能科技有限公司", "远山数字服务有限公司"),
+                row.getCounterpartyNames());
+        assertNull(row.getParties());
+
+        ContractRespVO detail = contractService.buildContractRespVO(contractMapper.selectById(contractId), 1L);
+        assertEquals(row.getCounterpartyNames(), detail.getCounterpartyNames());
+        assertEquals(3, detail.getParties().size());
+    }
+
     // ========== 复制 / 续签 ==========
 
     @Test
@@ -165,8 +215,8 @@ public class ContractCopyArchiveServiceTest extends BaseDbUnitTest {
         assertEquals("合同说明", copied.getDescription());
         assertEquals(ClmLifecycleStatusEnum.DRAFT.getStatus(), copied.getLifecycleStatus());
         assertEquals(ClmApprovalStatusEnum.NOT_SUBMITTED.getStatus(), copied.getApprovalStatus());
-        assertTrue(StrUtil.isNotBlank(copied.getContractNo()));
-        assertNotEquals(source.getContractNo(), copied.getContractNo());
+        // 一诺 V1 锁定：草稿不占用永久合同编号，首次成功提交才分配。
+        assertNull(copied.getContractNo());
         // 关联字段
         assertEquals(sourceId, copied.getSourceContractId());
         assertEquals(ClmContractRelationTypeEnum.COPY.getCode(), copied.getRelationType());
@@ -336,6 +386,51 @@ public class ContractCopyArchiveServiceTest extends BaseDbUnitTest {
         assertEquals(1, documentVersionMapper.selectListByContractId(contractId).size());
         assertTrue(filterList(auditEventMapper.selectList(),
                 e -> ClmAuditActionEnum.CONTRACT_ARCHIVE.getCode().equals(e.getAction())).isEmpty());
+    }
+
+    @Test
+    public void testDeleteAndRestoreDraft_preservesAggregateChildren() {
+        mockLoginUser(1L, 100L);
+        Long typeId = createContractType("RST", "恢复草稿类型");
+        publishDraftVersion(typeId, "{\"field\":\"a\",\"title\":\"A\"}");
+        Long contractId = contractService.createContract(buildCreateReqVO(typeId, "可恢复草稿", null,
+                insertParty("我方"), insertParty("对方")));
+        assertEquals(2, contractPartyMapper.selectListByContractId(contractId).size());
+        assertEquals(1, contractParticipantMapper.selectListByContractId(contractId).size());
+
+        contractService.deleteContract(contractId);
+        assertNull(contractMapper.selectById(contractId));
+        assertNotNull(contractMapper.selectDeletedById(contractId));
+        // 回收站只隐藏聚合根，子对象不会被不可逆地级联逻辑删除。
+        assertEquals(2, contractPartyMapper.selectListByContractId(contractId).size());
+        assertEquals(1, contractParticipantMapper.selectListByContractId(contractId).size());
+
+        ContractPageReqVO recycleQuery = new ContractPageReqVO();
+        recycleQuery.setDeletedOnly(true);
+        recycleQuery.setTitle("可恢复");
+        var recyclePage = contractService.getContractPage(recycleQuery);
+        assertEquals(1L, recyclePage.getTotal());
+        assertTrue(recyclePage.getList().get(0).getDeleted());
+        assertEquals(contractId, contractService.getDeletedContractDetail(contractId).getId());
+
+        // 即使其他用户是可管理参与人，回收站列表、详情和恢复仍严格仅属于原负责人。
+        contractParticipantMapper.insert(new ContractParticipantDO().setContractId(contractId)
+                .setPrincipalType(ContractParticipantDO.PRINCIPAL_TYPE_USER).setPrincipalId(2L)
+                .setRoleCode(ClmParticipantRoleEnum.COLLABORATOR.getCode())
+                .setCanView(true).setCanEdit(true).setCanManage(true));
+        mockLoginUser(2L, 200L);
+        assertEquals(0L, contractService.getContractPage(recycleQuery).getTotal());
+        assertServiceException(() -> contractService.getDeletedContractDetail(contractId), CONTRACT_ACCESS_DENIED);
+        assertServiceException(() -> contractService.restoreDraft(contractId), CONTRACT_ACCESS_DENIED);
+
+        mockLoginUser(1L, 100L);
+        contractService.restoreDraft(contractId);
+        assertNotNull(contractMapper.selectById(contractId));
+        assertNull(contractMapper.selectDeletedById(contractId));
+        assertEquals(2, contractPartyMapper.selectListByContractId(contractId).size());
+        assertEquals(2, contractParticipantMapper.selectListByContractId(contractId).size());
+        assertEquals(1, filterList(auditEventMapper.selectList(),
+                event -> ClmAuditActionEnum.CONTRACT_RESTORE.getCode().equals(event.getAction())).size());
     }
 
     // ========== 构造对象 ==========

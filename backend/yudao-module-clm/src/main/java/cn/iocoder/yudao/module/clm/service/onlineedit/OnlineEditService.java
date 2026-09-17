@@ -24,7 +24,8 @@ public interface OnlineEditService {
     OnlineEditConfigRespVO buildConfig(Long versionId, String mode, Long userId);
 
     /**
-     * Document Server 拉取文件（开放接口，令牌鉴权）；不写下载审计
+     * Document Server 拉取文件（开放接口，令牌鉴权）；使用 token 时重新校验用户当前查看 ACL，撤权立即失效；
+     * 不写下载审计
      *
      * @param token file 用途的紧凑令牌
      * @return 版本元数据 + 内容
@@ -34,7 +35,9 @@ public interface OnlineEditService {
     /**
      * Document Server 保存回调（开放接口，令牌鉴权）
      *
-     * status ∈ {2,6} 时拉取新文件并按内容幂等地创建 ONLINE_EDIT 新版本；其它 status 只记日志。
+     * 所有状态先校验 callback key 与 token 目标版本一致；status ∈ {2,6} 时仅从 configured Document Server
+     * 同源 URL 拉取新文件（不跟随重定向、限制响应大小），并按内容幂等地创建 ONLINE_EDIT 新版本；
+     * 其它 status 不拉取文件。
      * 令牌 / JWT 校验失败抛 ONLINE_EDIT_TOKEN_INVALID；拉取失败抛 ONLINE_EDIT_CALLBACK_FETCH_FAILED。
      *
      * @param token   callback 用途的紧凑令牌

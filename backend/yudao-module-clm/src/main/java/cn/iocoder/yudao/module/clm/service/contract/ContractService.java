@@ -33,6 +33,11 @@ public interface ContractService {
     void deleteContract(Long id);
 
     /**
+     * 从回收站恢复逻辑删除的草稿；只恢复合同聚合根，子对象在删除时保持不变。
+     */
+    void restoreDraft(Long id);
+
+    /**
      * 复制/续签合同：源合同可见即可；按源合同类型的当前发布版重建，
      * customData 只按新版本 schema 过滤未知字段（不校验必填），签约方快照重建，
      * 源合同有当前正文版本时复制其 blob 为新合同 MAIN v1
@@ -62,6 +67,11 @@ public interface ContractService {
      * 获得合同详情（含签约方、当前正文版本、当前绑定、权限）；要求可见
      */
     ContractRespVO getContractDetail(Long id);
+
+    /**
+     * 获得回收站草稿详情；严格仅原负责人可见。
+     */
+    ContractRespVO getDeletedContractDetail(Long id);
 
     /**
      * 分页（Mapper 层按对象权限过滤）

@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.springframework.format.annotation.DateTimeFormat;
+import jakarta.validation.constraints.Pattern;
 
 import java.time.LocalDateTime;
 
@@ -23,6 +24,25 @@ public class ContractPageReqVO extends PageParam {
 
     @Schema(description = "合同类型编号", example = "1")
     private Long typeId;
+
+    @Schema(description = "合同类型编号（新接口别名）", example = "1")
+    private Long contractTypeId;
+
+    @Schema(description = "业务阶段", example = "DRAFT")
+    private String stageCode;
+
+    @Schema(description = "仅查询回收站")
+    private Boolean deletedOnly;
+
+    @Schema(description = "归属组织编号", example = "100")
+    private Long orgId;
+
+    @Schema(description = "相对方名称")
+    private String counterpartyName;
+
+    @Schema(description = "台账范围：HANDLED/PARTICIPATED/APPROVED_BY_ME/AUTHORIZED_ORG")
+    @Pattern(regexp = "HANDLED|PARTICIPATED|APPROVED_BY_ME|AUTHORIZED_ORG", message = "台账查询范围不正确")
+    private String scope;
 
     @Schema(description = "审批状态", example = "0")
     private Integer approvalStatus;

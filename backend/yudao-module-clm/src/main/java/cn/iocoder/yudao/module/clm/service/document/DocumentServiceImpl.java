@@ -25,10 +25,12 @@ import cn.iocoder.yudao.module.clm.enums.contract.ClmApprovalStatusEnum;
 import cn.iocoder.yudao.module.clm.enums.document.ClmDocumentRoleEnum;
 import cn.iocoder.yudao.module.clm.enums.document.ClmDocumentSourceTypeEnum;
 import cn.iocoder.yudao.module.clm.service.audit.ClmAuditService;
+import cn.iocoder.yudao.module.clm.revision.ContractRevisionService;
 import cn.iocoder.yudao.module.system.api.user.AdminUserApi;
 import cn.iocoder.yudao.module.system.api.user.dto.AdminUserRespDTO;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
@@ -72,6 +74,9 @@ public class DocumentServiceImpl implements DocumentService {
     private ContractAccessService contractAccessService;
     @Resource
     private ClmAuditService clmAuditService;
+
+    @Autowired(required = false)
+    private ContractRevisionService contractRevisionService;
 
     @Resource
     private AdminUserApi adminUserApi;
@@ -152,6 +157,14 @@ public class DocumentServiceImpl implements DocumentService {
         detail.put("roleCode", role.getCode());
         clmAuditService.record(ClmAuditAggregateTypeEnum.DOCUMENT, document.getId(), contractId,
                 ClmAuditActionEnum.DOCUMENT_UPLOAD, detail);
+        if (role == ClmDocumentRoleEnum.MAIN && contractRevisionService != null) {
+            ContractDO latestContract = contractMapper.selectById(contractId);
+            // 新建草稿由起草服务在文件落库后创建带来源信息的初始修订；已有草稿则追加修订。
+            if (latestContract.getCurrentRevisionId() != null) {
+                contractRevisionService.createSnapshot(contractId, latestContract.getCurrentRevisionId(),
+                        "DOCUMENT_UPLOAD", StrUtil.nullToEmpty(remark));
+            }
+        }
         return version.getId();
     }
 
@@ -161,6 +174,16 @@ public class DocumentServiceImpl implements DocumentService {
                                        String fileName, String mimeType, byte[] content,
                                        ClmDocumentSourceTypeEnum sourceType, String remark, Long actorUserId,
                                        Map<String, Object> extraAuditDetail) {
+        return createVersionFromBytes(contractId, documentId, parentVersionId, fileName, mimeType, content,
+                sourceType, remark, actorUserId, extraAuditDetail, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long createVersionFromBytes(Long contractId, Long documentId, Long parentVersionId,
+                                       String fileName, String mimeType, byte[] content,
+                                       ClmDocumentSourceTypeEnum sourceType, String remark, Long actorUserId,
+                                       Map<String, Object> extraAuditDetail, boolean advanceCurrent) {
         // 1. 存在性校验（不做 ACL / 状态锁定校验：调用方已通过令牌鉴权）
         getRequiredContract(contractId);
         DocumentDO document = documentMapper.selectById(documentId);
@@ -202,13 +225,15 @@ public class DocumentServiceImpl implements DocumentService {
         version.setUpdater(actor);
         documentVersionMapper.insert(version);
         // 4. 更新 document.currentVersionId；MAIN 时更新 contract.currentDocumentVersionId
-        DocumentDO documentUpdate = new DocumentDO().setId(document.getId()).setCurrentVersionId(version.getId());
-        documentUpdate.setUpdater(actor);
-        documentMapper.updateById(documentUpdate);
-        if (ClmDocumentRoleEnum.MAIN.getCode().equals(document.getRoleCode())) {
-            ContractDO contractUpdate = new ContractDO().setId(contractId).setCurrentDocumentVersionId(version.getId());
-            contractUpdate.setUpdater(actor);
-            contractMapper.updateById(contractUpdate);
+        if (advanceCurrent) {
+            DocumentDO documentUpdate = new DocumentDO().setId(document.getId()).setCurrentVersionId(version.getId());
+            documentUpdate.setUpdater(actor);
+            documentMapper.updateById(documentUpdate);
+            if (ClmDocumentRoleEnum.MAIN.getCode().equals(document.getRoleCode())) {
+                ContractDO contractUpdate = new ContractDO().setId(contractId).setCurrentDocumentVersionId(version.getId());
+                contractUpdate.setUpdater(actor);
+                contractMapper.updateById(contractUpdate);
+            }
         }
         // 5. 审计（指定操作人）
         Map<String, Object> detail = new LinkedHashMap<>();
@@ -220,6 +245,7 @@ public class DocumentServiceImpl implements DocumentService {
         detail.put("size", content.length);
         detail.put("roleCode", document.getRoleCode());
         detail.put("sourceType", sourceType.getCode());
+        detail.put("advanceCurrent", advanceCurrent);
         if (extraAuditDetail != null) {
             detail.putAll(extraAuditDetail);
         }
@@ -227,6 +253,14 @@ public class DocumentServiceImpl implements DocumentService {
                 ? ClmAuditActionEnum.ONLINE_EDIT_SAVE : ClmAuditActionEnum.DOCUMENT_UPLOAD;
         clmAuditService.record(ClmAuditAggregateTypeEnum.DOCUMENT, document.getId(), contractId, action, detail,
                 actorUserId, resolveActorName(actorUserId));
+        if (advanceCurrent && ClmDocumentRoleEnum.MAIN.getCode().equals(document.getRoleCode())
+                && contractRevisionService != null) {
+            ContractDO latestContract = contractMapper.selectById(contractId);
+            if (latestContract.getCurrentRevisionId() != null) {
+                contractRevisionService.createSnapshot(contractId, latestContract.getCurrentRevisionId(),
+                        sourceType.getCode(), StrUtil.nullToEmpty(remark), actorUserId);
+            }
+        }
         return version.getId();
     }
 

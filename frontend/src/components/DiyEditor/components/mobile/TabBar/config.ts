@@ -46,35 +46,11 @@ export const component = {
     style: {
       bgType: 'color',
       bgColor: '#fff',
+      bgImg: '',
       color: '#282828',
       activeColor: '#fc4141'
     },
-    items: [
-      {
-        text: '首页',
-        url: '/pages/index/index',
-        iconUrl: 'http://mall.yudao.iocoder.cn/static/images/1-001.png',
-        activeIconUrl: 'http://mall.yudao.iocoder.cn/static/images/1-002.png'
-      },
-      {
-        text: '分类',
-        url: '/pages/index/category?id=3',
-        iconUrl: 'http://mall.yudao.iocoder.cn/static/images/2-001.png',
-        activeIconUrl: 'http://mall.yudao.iocoder.cn/static/images/2-002.png'
-      },
-      {
-        text: '购物车',
-        url: '/pages/index/cart',
-        iconUrl: 'http://mall.yudao.iocoder.cn/static/images/3-001.png',
-        activeIconUrl: 'http://mall.yudao.iocoder.cn/static/images/3-002.png'
-      },
-      {
-        text: '我的',
-        url: '/pages/index/user',
-        iconUrl: 'http://mall.yudao.iocoder.cn/static/images/4-001.png',
-        activeIconUrl: 'http://mall.yudao.iocoder.cn/static/images/4-002.png'
-      }
-    ]
+    items: []
   }
 } as DiyComponent<TabBarProperty>
 

@@ -2,7 +2,7 @@
 import { useValidator } from '@/hooks/web/useValidator'
 import { useDesign } from '@/hooks/web/useDesign'
 import { useLockStore } from '@/store/modules/lock'
-import avatarImg from '@/assets/imgs/avatar.gif'
+import avatarImg from '@/assets/imgs/logo.png'
 import { useUserStore } from '@/store/modules/user'
 
 const { getPrefixCls } = useDesign()
@@ -22,7 +22,7 @@ const props = defineProps({
 
 const userStore = useUserStore()
 const avatar = computed(() => userStore.user.avatar || avatarImg)
-const userName = computed(() => userStore.user.nickname ?? 'Admin')
+const userName = computed(() => userStore.user.nickname ?? 'TuriX 用户')
 
 const emit = defineEmits(['update:modelValue'])
 

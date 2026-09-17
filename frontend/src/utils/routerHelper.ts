@@ -10,7 +10,15 @@ import {
   splitRoutePath
 } from '@/utils/routeParams'
 
-const modules = import.meta.glob('../views/**/*.{vue,tsx}')
+// Keep the production bundle limited to TuriX CLM pages and the three
+// administration pages exposed by the clean baseline menu. Other upstream
+// examples remain in source for compatibility but are not routable or bundled.
+const modules = {
+  ...import.meta.glob('../views/clm/**/*.{vue,tsx}'),
+  ...import.meta.glob('../views/system/user/index.vue'),
+  ...import.meta.glob('../views/system/role/index.vue'),
+  ...import.meta.glob('../views/system/dept/index.vue')
+}
 /**
  * 注册一个异步组件
  * @param componentPath 例:/bpm/oa/leave/detail

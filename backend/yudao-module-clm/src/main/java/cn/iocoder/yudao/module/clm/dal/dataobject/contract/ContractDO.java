@@ -103,6 +103,26 @@ public class ContractDO extends TenantBaseDO {
      */
     private Long currentBindingId;
     /**
+     * 当前不可变合同修订编号（clm_contract_revision.id）
+     */
+    private Long currentRevisionId;
+    /**
+     * 起草来源：TEMPLATE / UPLOAD / MANUAL / COPY
+     */
+    private String sourceMode;
+    /**
+     * 面向业务的阶段：DRAFT / COLLABORATING / APPROVING / APPROVED
+     */
+    private String stageCode;
+    /**
+     * 已明确确认当前修订无重大承诺
+     */
+    private Boolean noCommitmentConfirmed;
+    /**
+     * 首次提交时使用的编号规则版本
+     */
+    private Long numberingRuleVersionId;
+    /**
      * 来源合同编号（复制/续签）
      */
     private Long sourceContractId;

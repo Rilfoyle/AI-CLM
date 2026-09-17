@@ -14,10 +14,10 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="合同类型" prop="typeId">
+          <el-form-item label="合同分类" prop="typeId">
             <el-select
               v-model="formData.typeId"
-              placeholder="请选择合同类型"
+              placeholder="请选择合同分类"
               class="w-full"
               :disabled="typeLocked"
               @change="handleTypeChange"
@@ -137,7 +137,7 @@
       </el-row>
     </el-form>
 
-    <!-- 扩展字段（按合同类型版本动态渲染） -->
+    <!-- 扩展字段（按合同分类版本动态渲染） -->
     <el-divider content-position="left">扩展字段</el-divider>
     <div v-loading="schemaLoading">
       <form-create
@@ -147,7 +147,7 @@
         v-model="customData"
         v-model:api="fApi"
       />
-      <el-empty v-else description="该合同类型无扩展字段" :image-size="60" />
+      <el-empty v-else description="该合同分类无扩展字段" :image-size="60" />
     </div>
 
     <div class="mt-20px">
@@ -176,7 +176,7 @@ const { query } = useRoute() // 查询参数
 
 const editId = query.id ? Number(query.id) : undefined // 编辑时的合同编号
 const isEdit = computed(() => !!editId)
-// 起草中心跳转参数：预选类型 / 用类型范本生成正文 / 上传文件起草
+// 合同起草跳转参数：预选分类 / 用分类范本生成正文 / 上传文件起草
 const presetTypeId = !editId && query.typeId ? Number(query.typeId) : undefined
 const useTemplate = !editId && String(query.useTemplate) === '1'
 const uploadMode = !editId && String(query.upload) === '1'
@@ -184,7 +184,7 @@ const uploadMode = !editId && String(query.upload) === '1'
 const formLoading = ref(false) // 表单的加载中
 const schemaLoading = ref(false) // 扩展字段的加载中
 const formRef = ref() // 表单 Ref
-const typeList = ref<ContractTypeApi.ContractTypeSimpleVO[]>([]) // 合同类型选项
+const typeList = ref<ContractTypeApi.ContractTypeSimpleVO[]>([]) // 合同分类选项
 const ourSideList = ref<PartyApi.PartySimpleVO[]>([]) // 我方主体选项
 const counterpartyList = ref<PartyApi.PartySimpleVO[]>([]) // 相对方选项
 const typeLocked = ref(false) // 编辑时，审批状态非"未提交"则不允许修改类型
@@ -211,7 +211,7 @@ const formData = ref({
 })
 const formRules = reactive({
   title: [{ required: true, message: '合同标题不能为空', trigger: 'blur' }],
-  typeId: [{ required: true, message: '合同类型不能为空', trigger: 'change' }],
+  typeId: [{ required: true, message: '合同分类不能为空', trigger: 'change' }],
   currency: [{ required: true, message: '币种不能为空', trigger: 'change' }],
   ourSideIds: [
     { required: true, type: 'array', min: 1, message: '至少选择一个我方主体', trigger: 'change' }
@@ -249,7 +249,7 @@ const loadSchema = async (versionId?: number, value?: Record<string, any>) => {
   }
 }
 
-/** 合同类型变更：按当前发布版本渲染扩展字段 */
+/** 合同分类变更：按当前发布版本渲染扩展字段 */
 const handleTypeChange = async (typeId: number) => {
   const type = typeList.value.find((item) => item.id === typeId)
   await loadSchema(type?.currentVersionId)
@@ -276,14 +276,9 @@ const loadContract = async (id: number) => {
       counterpartyIds: parties.filter((p) => p.roleCode === 'COUNTERPARTY').map((p) => p.partyId),
       description: data.description
     }
-    // 审批状态非"未提交"时，后端会忽略 typeId，按合同已绑定的版本渲染
+    // 编辑既有合同时始终按创建时绑定的类型版本渲染，避免旧草稿静默切换到最新版本
     typeLocked.value = data.approvalStatus !== 0
-    let versionId = data.typeVersionId
-    if (!typeLocked.value) {
-      const type = typeList.value.find((item) => item.id === data.typeId)
-      versionId = type?.currentVersionId || data.typeVersionId
-    }
-    await loadSchema(versionId, data.customData)
+    await loadSchema(data.typeVersionId, data.customData)
   } finally {
     formLoading.value = false
   }
@@ -385,7 +380,7 @@ onMounted(async () => {
   if (editId) {
     await loadContract(editId)
   } else if (presetTypeId && typeList.value.some((item) => item.id === presetTypeId)) {
-    // 起草中心预选类型，并按类型当前发布版本加载扩展字段
+    // 合同起草预选分类，并按分类当前发布版本加载扩展字段
     formData.value.typeId = presetTypeId
     await handleTypeChange(presetTypeId)
   }

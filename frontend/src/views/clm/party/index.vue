@@ -1,4 +1,29 @@
 <template>
+  <ContentWrap>
+    <div class="flex flex-wrap items-start justify-between gap-12px">
+      <div>
+        <div class="text-20px font-bold">相对方信息</div>
+        <div class="mt-5px text-13px text-[var(--el-text-color-secondary)]">
+          统一管理相对方，并保留合同起草所需的我方主体；起草时只引用启用记录并冻结参与方快照。
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-8px">
+        <el-button v-hasPermi="['clm:party:query']" @click="openDuplicateDrawer">
+          <Icon icon="ep:connection" class="mr-5px" />重复识别
+        </el-button>
+        <el-button
+          v-hasPermi="['clm:party-import:query']"
+          @click="router.push('/clm/basic-data/import')"
+        >
+          <Icon icon="ep:upload" class="mr-5px" />相对方导入
+        </el-button>
+        <el-button v-hasPermi="['clm:party:create']" type="primary" @click="openForm('create')">
+          <Icon icon="ep:plus" class="mr-5px" />新增参与方
+        </el-button>
+      </div>
+    </div>
+  </ContentWrap>
+
   <!-- 搜索 -->
   <ContentWrap>
     <el-form
@@ -11,7 +36,7 @@
       <el-form-item label="名称" prop="name">
         <el-input
           v-model="queryParams.name"
-          placeholder="请输入签约方名称"
+          placeholder="请输入相对方或我方主体名称"
           clearable
           @keyup.enter="handleQuery"
           class="!w-240px"
@@ -56,14 +81,6 @@
       <el-form-item>
         <el-button @click="handleQuery"><Icon icon="ep:search" class="mr-5px" /> 搜索</el-button>
         <el-button @click="resetQuery"><Icon icon="ep:refresh" class="mr-5px" /> 重置</el-button>
-        <el-button
-          type="primary"
-          plain
-          @click="openForm('create')"
-          v-hasPermi="['clm:party:create']"
-        >
-          <Icon icon="ep:plus" class="mr-5px" /> 新增
-        </el-button>
       </el-form-item>
     </el-form>
   </ContentWrap>
@@ -90,6 +107,11 @@
         width="180"
         :show-overflow-tooltip="true"
       />
+      <el-table-column label="我方简称" align="center" prop="shortName" width="120">
+        <template #default="scope">{{
+          scope.row.internalFlag ? scope.row.shortName || '-' : '-'
+        }}</template>
+      </el-table-column>
       <el-table-column label="联系人" align="center" prop="contactName" width="100" />
       <el-table-column label="联系电话" align="center" prop="contactPhone" width="130" />
       <el-table-column label="状态" align="center" prop="status" width="90">
@@ -137,17 +159,20 @@
 
   <!-- 表单弹窗：添加/修改 -->
   <PartyForm ref="formRef" @success="getList" />
+  <PartyDuplicateDrawer ref="duplicateDrawerRef" @merged="getList" />
 </template>
 <script lang="ts" setup>
 import { DICT_TYPE, getIntDictOptions } from '@/utils/dict'
 import { dateFormatter } from '@/utils/formatTime'
 import * as PartyApi from '@/api/clm/party'
 import PartyForm from './PartyForm.vue'
+import PartyDuplicateDrawer from './components/PartyDuplicateDrawer.vue'
 
 defineOptions({ name: 'ClmParty' })
 
 const message = useMessage() // 消息弹窗
 const { t } = useI18n() // 国际化
+const router = useRouter()
 
 const loading = ref(true) // 列表的加载中
 const total = ref(0) // 列表的总页数
@@ -191,6 +216,12 @@ const formRef = ref()
 const openForm = (type: string, id?: number) => {
   formRef.value.open(type, id)
 }
+const duplicateDrawerRef = ref<InstanceType<typeof PartyDuplicateDrawer>>()
+const openDuplicateDrawer = () =>
+  duplicateDrawerRef.value?.open({
+    internalFlag: queryParams.internalFlag,
+    partyType: queryParams.partyType
+  })
 
 /** 删除按钮操作 */
 const handleDelete = async (id: number) => {

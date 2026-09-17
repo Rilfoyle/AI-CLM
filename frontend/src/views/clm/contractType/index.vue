@@ -1,4 +1,18 @@
 <template>
+  <ContentWrap>
+    <div class="flex flex-wrap items-start justify-between gap-12px">
+      <div>
+        <div class="text-20px font-bold">合同分类</div>
+        <div class="mt-5px text-13px text-[var(--el-text-color-secondary)]">
+          维护合同分类、启停状态和版本。页面字段布局通过“页面布局配置”统一进入现有版本设计器。
+        </div>
+      </div>
+      <el-button @click="router.push('/clm/base-settings/page-layout')">
+        <Icon icon="ep:grid" class="mr-5px" />页面布局配置
+      </el-button>
+    </div>
+  </ContentWrap>
+
   <!-- 搜索 -->
   <ContentWrap>
     <el-form
@@ -8,19 +22,19 @@
       :inline="true"
       label-width="68px"
     >
-      <el-form-item label="类型编码" prop="code">
+      <el-form-item label="分类编码" prop="code">
         <el-input
           v-model="queryParams.code"
-          placeholder="请输入类型编码"
+          placeholder="请输入分类编码"
           clearable
           @keyup.enter="handleQuery"
           class="!w-240px"
         />
       </el-form-item>
-      <el-form-item label="类型名称" prop="name">
+      <el-form-item label="分类名称" prop="name">
         <el-input
           v-model="queryParams.name"
-          placeholder="请输入类型名称"
+          placeholder="请输入分类名称"
           clearable
           @keyup.enter="handleQuery"
           class="!w-240px"
@@ -45,7 +59,7 @@
           @click="openForm('create')"
           v-hasPermi="['clm:contract-type:create']"
         >
-          <Icon icon="ep:plus" class="mr-5px" /> 新增
+          <Icon icon="ep:plus" class="mr-5px" /> 新增分类
         </el-button>
       </el-form-item>
     </el-form>
@@ -105,7 +119,7 @@
             @click="openVersionDrawer(scope.row)"
             v-hasPermi="['clm:contract-type:query']"
           >
-            版本/设计
+            页面布局/版本
           </el-button>
           <el-button
             link
@@ -141,9 +155,9 @@
   <VersionDrawer ref="versionDrawerRef" @success="getList" />
 
   <!-- 范本弹窗：上传 / 替换 / 下载 -->
-  <el-dialog v-model="templateDialogVisible" title="类型范本" width="520px">
+  <el-dialog v-model="templateDialogVisible" title="分类范本" width="520px">
     <el-form label-width="90px">
-      <el-form-item label="合同类型">
+      <el-form-item label="合同分类">
         <span>{{ templateRow?.name }}</span>
       </el-form-item>
       <el-form-item label="当前范本">
@@ -192,6 +206,7 @@ defineOptions({ name: 'ClmContractType' })
 
 const message = useMessage() // 消息弹窗
 const { t } = useI18n() // 国际化
+const router = useRouter()
 
 const loading = ref(true) // 列表的加载中
 const total = ref(0) // 列表的总页数

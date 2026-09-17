@@ -88,6 +88,27 @@ public class ContractRespVO {
     @Schema(description = "最近一次流程绑定编号", example = "1")
     private Long currentBindingId;
 
+    @Schema(description = "当前不可变修订编号", example = "1")
+    private Long currentRevisionId;
+
+    @Schema(description = "当前不可变修订序号", example = "1")
+    private Integer currentRevisionNo;
+
+    @Schema(description = "起草来源：TEMPLATE / UPLOAD / MANUAL / COPY", example = "UPLOAD")
+    private String sourceMode;
+
+    @Schema(description = "业务阶段：DRAFT / COLLABORATING / APPROVING / APPROVED", example = "DRAFT")
+    private String stageCode;
+
+    @Schema(description = "是否明确确认无重大承诺")
+    private Boolean noCommitmentConfirmed;
+
+    @Schema(description = "编号规则版本编号", example = "1")
+    private Long numberingRuleVersionId;
+
+    @Schema(description = "逻辑删除标记")
+    private Boolean deleted;
+
     @Schema(description = "来源合同编号（复制/续签）", example = "1")
     private Long sourceContractId;
 
@@ -111,6 +132,12 @@ public class ContractRespVO {
 
     @Schema(description = "签约方列表")
     private List<ContractPartyRespVO> parties;
+
+    @Schema(description = "首个相对方名称", example = "星河智能科技有限公司")
+    private String counterpartyName;
+
+    @Schema(description = "相对方名称列表")
+    private List<String> counterpartyNames;
 
     @Schema(description = "当前正文版本")
     private DocumentVersionRespVO currentDocumentVersion;

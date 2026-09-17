@@ -30,36 +30,24 @@
         </el-upload>
       </span>
     </el-tooltip>
-    <el-tooltip content="勾选任意两个版本后可并排查看（非内容级比较）" placement="top">
-      <span>
-        <el-button :disabled="selectedVersions.length !== 2" @click="handleCompare">
-          <Icon icon="ep:copy-document" class="mr-5px" /> 并排查看
-          <span v-if="selectedVersions.length" class="ml-5px">
-            ({{ selectedVersions.length }}/2)
-          </span>
-        </el-button>
-      </span>
-    </el-tooltip>
     <span class="text-sm text-gray-500">
       支持 docx/doc/pdf/xlsx/xls/pptx/ppt/txt/zip/png/jpg，单文件不超过 50MB
     </span>
   </div>
 
-  <div v-loading="loading">
+  <el-empty
+    v-if="!canViewDocuments"
+    description="当前角色无正文版本与附件查看权限"
+    :image-size="72"
+  />
+  <div v-else v-loading="loading">
     <el-empty v-if="documents.length === 0" description="暂无正文或附件" :image-size="60" />
     <div v-for="doc in documents" :key="doc.id" class="mb-20px">
       <div class="mb-8px flex items-center gap-8px">
         <span class="font-bold">{{ doc.name }}</span>
         <dict-tag :type="DICT_TYPE.CLM_DOCUMENT_ROLE" :value="doc.roleCode" />
       </div>
-      <el-table
-        :data="doc.versions || []"
-        border
-        stripe
-        :row-class-name="rowClassName(doc)"
-        @selection-change="(rows) => handleSelectionChange(doc.id, rows)"
-      >
-        <el-table-column type="selection" width="45" align="center" />
+      <el-table :data="doc.versions || []" border stripe :row-class-name="rowClassName(doc)">
         <el-table-column label="版本" align="center" width="90">
           <template #default="scope">
             <span>v{{ scope.row.versionNo }}</span>
@@ -107,7 +95,8 @@
               在线编辑
             </el-button>
             <el-button
-              v-hasPermi="['clm:contract:query']"
+              v-if="permissions.canDownload"
+              v-hasPermi="['clm:contract:download']"
               link
               type="primary"
               @click="emit('preview', scope.row.id, scope.row.fileName)"
@@ -135,6 +124,7 @@ import type { UploadFile as ElUploadFile } from 'element-plus'
 import { DICT_TYPE } from '@/utils/dict'
 import { dateFormatter } from '@/utils/formatTime'
 import { formatFileSize } from '@/utils/file'
+import { checkPermi } from '@/utils/permission'
 import * as ContractApi from '@/api/clm/contract'
 
 defineOptions({ name: 'ClmContractDocuments' })
@@ -154,10 +144,11 @@ const MAX_SIZE = 50 * 1024 * 1024
 const permissions = computed<Partial<ContractApi.ContractPermissionsVO>>(
   () => props.contract.permissions || {}
 )
-const canUpload = computed(() => !!permissions.value.canEdit)
-const uploadDisabledTip = computed(() =>
-  props.contract.approvalStatus === 1 ? '审批中的合同不可上传文件' : '无编辑权限，不可上传文件'
+const canViewDocuments = computed(
+  () => !!permissions.value.canDownload && checkPermi(['clm:contract:download'])
 )
+const canUpload = computed(() => canViewDocuments.value && !!permissions.value.canEdit)
+const uploadDisabledTip = computed(() => '当前用户或当前节点无编辑权限')
 
 /** 当前版本行高亮 */
 const rowClassName = (doc: ContractApi.DocumentVO) => {
@@ -167,11 +158,15 @@ const rowClassName = (doc: ContractApi.DocumentVO) => {
 
 /** 加载文档列表 */
 const getList = async () => {
+  if (!canViewDocuments.value) {
+    documents.value = []
+    loading.value = false
+    return
+  }
   if (!props.contract.id) return
   loading.value = true
   try {
     documents.value = (await ContractApi.getDocumentList(props.contract.id)) || []
-    selectionByDoc.value = {}
   } finally {
     loading.value = false
   }
@@ -205,10 +200,11 @@ const handleFileChange = async (file: ElUploadFile, roleCode: 'MAIN' | 'ATTACHME
 
 /** 下载 */
 const handleDownload = async (row: ContractApi.DocumentVersionVO) => {
+  if (!canViewDocuments.value) return
   await ContractApi.downloadVersionFile(row.id, row.fileName)
 }
 
-// ========== 在线编辑 / 预览 / 并排查看 ==========
+// ========== 在线编辑 / 预览 ==========
 
 const OFFICE_EXTENSIONS = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt']
 
@@ -219,13 +215,12 @@ const isOfficeFile = (fileName?: string) => {
   return OFFICE_EXTENSIONS.includes(ext)
 }
 
-/** 是否允许在线编辑：当前版本 + 有编辑权限 + 未冻结 + 非审批中 */
+/** 是否允许在线编辑：当前版本 + 服务端授予编辑权限 + 未冻结 */
 const canOnlineEdit = (doc: ContractApi.DocumentVO, row: ContractApi.DocumentVersionVO) => {
   return (
     row.id === doc.currentVersionId &&
     !!permissions.value.canEdit &&
     !row.frozen &&
-    props.contract.approvalStatus !== 1 &&
     isOfficeFile(row.fileName)
   )
 }
@@ -238,37 +233,13 @@ const handleOnlineEdit = (row: ContractApi.DocumentVersionVO, mode: 'edit' | 'vi
   })
 }
 
-/** 各文档表格的勾选状态（按文档 id 分组） */
-const selectionByDoc = ref<Record<number, ContractApi.DocumentVersionVO[]>>({})
-const selectedVersions = computed(() =>
-  Object.values(selectionByDoc.value)
-    .flat()
-    .sort((a, b) => a.id - b.id)
-)
-
-const handleSelectionChange = (docId: number, rows: ContractApi.DocumentVersionVO[]) => {
-  selectionByDoc.value = { ...selectionByDoc.value, [docId]: rows }
-}
-
-/** 并排查看（非内容级比较） */
-const handleCompare = () => {
-  if (selectedVersions.value.length !== 2) {
-    message.warning('请勾选两个版本后再并排查看')
-    return
-  }
-  const [a, b] = selectedVersions.value
-  if (!isOfficeFile(a.fileName) || !isOfficeFile(b.fileName)) {
-    message.warning('仅支持 docx/doc/xlsx/xls/pptx/ppt 类型的版本并排查看')
-    return
-  }
-  push({
-    name: 'ClmContractCompare',
-    query: { left: a.id, right: b.id, contractId: props.contract.id }
-  })
-}
-
 watch(
-  () => [props.contract.id, props.contract.updateTime, props.contract.currentDocumentVersionId],
+  () => [
+    props.contract.id,
+    props.contract.updateTime,
+    props.contract.currentDocumentVersionId,
+    props.contract.permissions?.canDownload
+  ],
   () => {
     getList()
   },

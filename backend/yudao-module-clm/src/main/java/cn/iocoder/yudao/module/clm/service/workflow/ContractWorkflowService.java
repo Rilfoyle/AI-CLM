@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.clm.service.workflow;
 
 import cn.iocoder.yudao.module.clm.controller.admin.contract.vo.ContractApprovalPreviewRespVO;
 import cn.iocoder.yudao.module.clm.controller.admin.contract.vo.ContractSubmitReqVO;
+import cn.iocoder.yudao.module.clm.controller.admin.contract.vo.ContractSubmitRespVO;
 import cn.iocoder.yudao.module.clm.controller.admin.workflow.vo.WorkflowBindingDetailRespVO;
 import cn.iocoder.yudao.module.clm.controller.admin.workflow.vo.WorkflowBindingRespVO;
 import cn.iocoder.yudao.module.clm.dal.dataobject.workflow.WorkflowBindingDO;
@@ -19,7 +20,14 @@ public interface ContractWorkflowService {
      *
      * @return bindingId
      */
-    Long submit(@Valid ContractSubmitReqVO reqVO);
+    ContractSubmitRespVO submit(@Valid ContractSubmitReqVO reqVO);
+
+    /** 重大审批中编辑：取消旧业务单并以新修订完整重走审批。 */
+    ContractSubmitRespVO supersedeAndResubmit(WorkflowBindingDO oldBinding, Long revisionId,
+                                              String requestId, String reason);
+
+    /** 发起人撤回当前审批；合同编号永久保留，合同回到可修订、可重提状态。 */
+    void withdrawByStarter(Long approvalCaseId, String reason);
 
     /**
      * 处理 BPM 流程结果（由监听器调用）

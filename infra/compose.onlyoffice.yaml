@@ -3,16 +3,24 @@
 # Then set CLM_ONLYOFFICE_URL=http://127.0.0.1:8090 and CLM_ONLYOFFICE_CALLBACK_BASE=http://host.docker.internal:48080 in infra/.env.
 services:
   onlyoffice:
-    image: onlyoffice/documentserver:8.2
+    # Gate baseline: keep the handoff-selected 8.2 line and pin the multi-arch index digest.
+    image: onlyoffice/documentserver:8.2@sha256:fb1c76177e578918f0d7ad51eda5006d728b9f2f071f93d18054c1f91edec78b
     container_name: clm-onlyoffice
+    restart: unless-stopped
     environment:
       JWT_ENABLED: "true"
       JWT_SECRET: ${CLM_ONLYOFFICE_JWT_SECRET:?set CLM_ONLYOFFICE_JWT_SECRET in infra/.env}
       JWT_HEADER: Authorization
     ports:
-      - "8090:80"
+      - "127.0.0.1:8090:80"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/healthcheck || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     volumes:
       - clm-onlyoffice-data:/var/www/onlyoffice/Data
       - clm-onlyoffice-logs:/var/log/onlyoffice

@@ -121,8 +121,8 @@ export default {
     small: '小'
   },
   login: {
-    welcome: '欢迎使用本系统',
-    message: '开箱即用的中后台管理系统',
+    welcome: '欢迎使用 TuriX 合同管理系统',
+    message: '合同起草、法务协同与审批的一体化工作台',
     tenantname: '租户名称',
     username: '用户名',
     password: '密码',
@@ -349,7 +349,7 @@ export default {
       errMsg503: '服务不可用，服务器暂时过载或维护!',
       errMsg504: '网络超时!',
       errMsg505: 'http版本不支持该请求!',
-      errMsg901: '演示模式，无法进行写操作!'
+      errMsg901: '当前环境已禁用该写操作，请联系系统管理员!'
     },
     app: {
       logoutTip: '温馨提醒',

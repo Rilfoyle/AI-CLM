@@ -18,6 +18,7 @@ interface ImportMetaEnv {
   readonly VITE_APP_DEFAULT_LOGIN_USERNAME: string
   readonly VITE_APP_DEFAULT_LOGIN_PASSWORD: string
   readonly VITE_APP_DOCALERT_ENABLE: string
+  readonly VITE_APP_DEMO_ROLE_SWITCH_ENABLE: string
   readonly VITE_BASE_URL: string
   readonly VITE_API_URL: string
   readonly VITE_BASE_PATH: string

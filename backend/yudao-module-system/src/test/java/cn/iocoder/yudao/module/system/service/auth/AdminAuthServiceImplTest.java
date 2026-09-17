@@ -3,12 +3,17 @@ package cn.iocoder.yudao.module.system.service.auth;
 import cn.hutool.core.util.ReflectUtil;
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
+import cn.iocoder.yudao.framework.security.core.LoginUser;
+import cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils;
+import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
 import cn.iocoder.yudao.framework.test.core.ut.BaseDbUnitTest;
 import cn.iocoder.yudao.module.system.api.sms.SmsCodeApi;
 import cn.iocoder.yudao.module.system.api.social.dto.SocialUserBindReqDTO;
 import cn.iocoder.yudao.module.system.api.social.dto.SocialUserRespDTO;
 import cn.iocoder.yudao.module.system.controller.admin.auth.vo.*;
 import cn.iocoder.yudao.module.system.dal.dataobject.oauth2.OAuth2AccessTokenDO;
+import cn.iocoder.yudao.module.system.dal.dataobject.permission.RoleDO;
+import cn.iocoder.yudao.module.system.dal.dataobject.tenant.TenantDO;
 import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
 import cn.iocoder.yudao.module.system.enums.logger.LoginLogTypeEnum;
 import cn.iocoder.yudao.module.system.enums.logger.LoginResultEnum;
@@ -17,17 +22,27 @@ import cn.iocoder.yudao.module.system.enums.social.SocialTypeEnum;
 import cn.iocoder.yudao.module.system.service.logger.LoginLogService;
 import cn.iocoder.yudao.module.system.service.member.MemberService;
 import cn.iocoder.yudao.module.system.service.oauth2.OAuth2TokenService;
+import cn.iocoder.yudao.module.system.service.permission.PermissionService;
+import cn.iocoder.yudao.module.system.service.permission.RoleService;
 import cn.iocoder.yudao.module.system.service.social.SocialUserService;
+import cn.iocoder.yudao.module.system.service.tenant.TenantService;
 import cn.iocoder.yudao.module.system.service.user.AdminUserService;
 import com.anji.captcha.model.common.ResponseModel;
 import com.anji.captcha.service.CaptchaService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 import static cn.hutool.core.util.RandomUtil.randomEle;
 import static cn.iocoder.yudao.framework.test.core.util.AssertUtils.assertPojoEquals;
@@ -36,6 +51,7 @@ import static cn.iocoder.yudao.framework.test.core.util.RandomUtils.randomPojo;
 import static cn.iocoder.yudao.framework.test.core.util.RandomUtils.randomString;
 import static cn.iocoder.yudao.module.system.enums.ErrorCodeConstants.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -61,6 +77,12 @@ public class AdminAuthServiceImplTest extends BaseDbUnitTest {
     private MemberService memberService;
     @MockitoBean
     private Validator validator;
+    @MockitoBean
+    private PermissionService permissionService;
+    @MockitoBean
+    private RoleService roleService;
+    @MockitoBean
+    private TenantService tenantService;
 
     @BeforeEach
     public void setUp() {
@@ -68,6 +90,166 @@ public class AdminAuthServiceImplTest extends BaseDbUnitTest {
         // 注入一个 Validator 对象
         ReflectUtil.setFieldValue(authService, "validator",
                 Validation.buildDefaultValidatorFactory().getValidator());
+    }
+
+    @AfterEach
+    public void tearDown() {
+        TenantContextHolder.clear();
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    public void testSwitchDemoRole_successFromSystemAdmin() {
+        mockDemoTenant("TuriX");
+        setLoginUser(200004L, null);
+        mockDemoAccount(200004L, "systemadmin", "clm_system_admin");
+        AdminUserDO targetUser = mockDemoAccount(200001L, "business", "clm_business");
+        AuthDemoRoleSwitchReqVO reqVO = new AuthDemoRoleSwitchReqVO();
+        reqVO.setRoleCode("clm_business");
+        OAuth2AccessTokenDO accessTokenDO = randomPojo(OAuth2AccessTokenDO.class,
+                o -> o.setUserId(targetUser.getId()).setUserType(UserTypeEnum.ADMIN.getValue()));
+        when(oauth2TokenService.createAccessToken(eq(200001L), eq(UserTypeEnum.ADMIN.getValue()), eq("default"),
+                eq(List.of(AdminAuthServiceImpl.DEMO_ROLE_SWITCH_SCOPE)))).thenReturn(accessTokenDO);
+
+        AuthLoginRespVO result = authService.switchDemoRole(reqVO, "current-token");
+
+        assertPojoEquals(accessTokenDO, result);
+        verify(oauth2TokenService).removeAccessToken("current-token");
+        verify(loginLogService).createLoginLog(argThat(log -> Objects.equals(log.getUserId(), 200001L)
+                && Objects.equals(log.getResult(), LoginResultEnum.SUCCESS.getResult())));
+    }
+
+    @Test
+    public void testSwitchDemoRole_successFromScopedDemoAccount() {
+        mockDemoTenant("TuriX");
+        setLoginUser(200001L, List.of(AdminAuthServiceImpl.DEMO_ROLE_SWITCH_SCOPE));
+        mockDemoAccount(200001L, "business", "clm_business");
+        mockDemoAccount(200002L, "legal", "clm_legal");
+        AuthDemoRoleSwitchReqVO reqVO = new AuthDemoRoleSwitchReqVO();
+        reqVO.setRoleCode("clm_legal");
+        OAuth2AccessTokenDO accessTokenDO = randomPojo(OAuth2AccessTokenDO.class,
+                o -> o.setUserId(200002L).setUserType(UserTypeEnum.ADMIN.getValue()));
+        when(oauth2TokenService.createAccessToken(eq(200002L), eq(UserTypeEnum.ADMIN.getValue()), eq("default"),
+                eq(List.of(AdminAuthServiceImpl.DEMO_ROLE_SWITCH_SCOPE)))).thenReturn(accessTokenDO);
+
+        AuthLoginRespVO result = authService.switchDemoRole(reqVO, "scoped-token");
+
+        assertPojoEquals(accessTokenDO, result);
+        verify(oauth2TokenService).removeAccessToken("scoped-token");
+    }
+
+    @Test
+    public void testSwitchDemoRole_rejectsUnscopedBusiness() {
+        mockDemoTenant("TuriX");
+        setLoginUser(200001L, null);
+        AuthDemoRoleSwitchReqVO reqVO = new AuthDemoRoleSwitchReqVO();
+        reqVO.setRoleCode("clm_legal");
+
+        assertThrows(AccessDeniedException.class,
+                () -> authService.switchDemoRole(reqVO, "current-token"));
+        verify(oauth2TokenService, never()).createAccessToken(anyLong(), anyInt(), anyString(), any());
+    }
+
+    @Test
+    public void testSwitchDemoRole_rejectsPlatformAdmin() {
+        mockDemoTenant("TuriX");
+        setLoginUser(1L, null);
+        AuthDemoRoleSwitchReqVO reqVO = new AuthDemoRoleSwitchReqVO();
+        reqVO.setRoleCode("clm_business");
+
+        assertThrows(AccessDeniedException.class,
+                () -> authService.switchDemoRole(reqVO, "current-token"));
+        verify(oauth2TokenService, never()).createAccessToken(anyLong(), anyInt(), anyString(), any());
+    }
+
+    @Test
+    public void testSwitchDemoRole_rejectsAdminTarget() {
+        mockDemoTenant("TuriX");
+        setLoginUser(200004L, null);
+        mockDemoAccount(200004L, "systemadmin", "clm_system_admin");
+        AuthDemoRoleSwitchReqVO reqVO = new AuthDemoRoleSwitchReqVO();
+        reqVO.setRoleCode("super_admin");
+
+        assertThrows(AccessDeniedException.class,
+                () -> authService.switchDemoRole(reqVO, "current-token"));
+        verify(oauth2TokenService, never()).createAccessToken(anyLong(), anyInt(), anyString(), any());
+    }
+
+    @Test
+    public void testSwitchDemoRole_rejectsOtherTenant() {
+        mockDemoTenant("Other");
+        setLoginUser(200004L, null);
+        AuthDemoRoleSwitchReqVO reqVO = new AuthDemoRoleSwitchReqVO();
+        reqVO.setRoleCode("clm_business");
+
+        assertThrows(AccessDeniedException.class,
+                () -> authService.switchDemoRole(reqVO, "current-token"));
+        verify(oauth2TokenService, never()).createAccessToken(anyLong(), anyInt(), anyString(), any());
+    }
+
+    @Test
+    public void testSwitchDemoRole_rejectsWrongTargetRole() {
+        mockDemoTenant("TuriX");
+        setLoginUser(200004L, null);
+        mockDemoAccount(200004L, "systemadmin", "clm_system_admin");
+        AdminUserDO targetUser = new AdminUserDO().setId(200001L).setUsername("business")
+                .setStatus(CommonStatusEnum.ENABLE.getStatus());
+        targetUser.setTenantId(1L);
+        when(userService.getUserByUsername("business")).thenReturn(targetUser);
+        when(permissionService.getUserRoleIdListByUserId(200001L)).thenReturn(Set.of(9001L));
+        RoleDO wrongRole = new RoleDO().setId(9001L).setCode("clm_legal")
+                .setStatus(CommonStatusEnum.ENABLE.getStatus());
+        wrongRole.setTenantId(1L);
+        when(roleService.getRoleList(Set.of(9001L))).thenReturn(List.of(wrongRole));
+        AuthDemoRoleSwitchReqVO reqVO = new AuthDemoRoleSwitchReqVO();
+        reqVO.setRoleCode("clm_business");
+
+        assertThrows(AccessDeniedException.class,
+                () -> authService.switchDemoRole(reqVO, "current-token"));
+        verify(oauth2TokenService, never()).createAccessToken(anyLong(), anyInt(), anyString(), any());
+    }
+
+    @Test
+    public void testSwitchDemoRole_rejectsDisabledTarget() {
+        mockDemoTenant("TuriX");
+        setLoginUser(200004L, null);
+        mockDemoAccount(200004L, "systemadmin", "clm_system_admin");
+        AdminUserDO targetUser = new AdminUserDO().setId(200001L).setUsername("business")
+                .setStatus(CommonStatusEnum.DISABLE.getStatus());
+        targetUser.setTenantId(1L);
+        when(userService.getUserByUsername("business")).thenReturn(targetUser);
+        AuthDemoRoleSwitchReqVO reqVO = new AuthDemoRoleSwitchReqVO();
+        reqVO.setRoleCode("clm_business");
+
+        assertThrows(AccessDeniedException.class,
+                () -> authService.switchDemoRole(reqVO, "current-token"));
+        verify(oauth2TokenService, never()).createAccessToken(anyLong(), anyInt(), anyString(), any());
+    }
+
+    private void mockDemoTenant(String name) {
+        TenantContextHolder.setTenantId(1L);
+        when(tenantService.getTenant(1L)).thenReturn(new TenantDO().setId(1L).setName(name)
+                .setStatus(CommonStatusEnum.ENABLE.getStatus()));
+    }
+
+    private void setLoginUser(Long userId, List<String> scopes) {
+        SecurityFrameworkUtils.setLoginUser(new LoginUser().setId(userId).setUserType(UserTypeEnum.ADMIN.getValue())
+                .setTenantId(1L).setScopes(scopes), new MockHttpServletRequest());
+    }
+
+    private AdminUserDO mockDemoAccount(Long userId, String username, String roleCode) {
+        AdminUserDO user = new AdminUserDO().setId(userId).setUsername(username)
+                .setStatus(CommonStatusEnum.ENABLE.getStatus());
+        user.setTenantId(1L);
+        when(userService.getUser(userId)).thenReturn(user);
+        when(userService.getUserByUsername(username)).thenReturn(user);
+        Long roleId = userId + 1_000_000L;
+        when(permissionService.getUserRoleIdListByUserId(userId)).thenReturn(Set.of(roleId));
+        RoleDO role = new RoleDO().setId(roleId).setCode(roleCode)
+                .setStatus(CommonStatusEnum.ENABLE.getStatus());
+        role.setTenantId(1L);
+        when(roleService.getRoleList(Set.of(roleId))).thenReturn(List.of(role));
+        return user;
     }
 
     @Test
